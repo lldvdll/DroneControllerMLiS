@@ -54,7 +54,7 @@ def main(controller: FlightController):
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     
     # Initalise the drone
-    drone = controller.init_drone()
+    drone = controller.init_drone(mode='random', num_targets=100)  # I've changed this so that more targets are generated randomly
     
     simulation_step_counter = 0
     max_simulation_steps = controller.get_max_simulation_steps()
