@@ -12,6 +12,7 @@ from drone import Drone
 from typing import Tuple 
 import numpy as np
 import matplotlib.pyplot as plt
+import json
 
 
 
@@ -178,27 +179,28 @@ class Reinforce1LayerController(FlightController):
 
     def __init__(self):
         
-        # Set learning rate
-        self.learning_rate = 0.01  # Probably want to pass this as a parameter?
-        self.filename = "reinforce_1layer_weights.npy"
-        self.crash_range = 2.0  # Set edge of screen for early stopping
+        # Load config with parameters etc
+        with open('reinforce_1layer_config.json', 'r') as f:
+            config = json.load(f)
+        self.config = config
+        print('Config:')
+        print(config)        
         
-        # Define action space
-        self.actions = {
-            0: (0.5, 0.5),  # Hover
-            1: (0.9, 0.9),  # Up
-            2: (0.1, 0.1),  # Down
-            3: (0.7, 0.3),  # Right
-            4: (0.3, 0.7)   # Left
-        }
+        # Set learning rate
+        self.filename = "reinforce_1layer_weights.npy"
+        self.learning_rate = config.get('learning_rate')  # Probably want to pass this as a parameter?
+        self.discount_factor = config.get('discount_factor')
+        self.crash_range = config.get('crash_range')  # Set edge of screen for early stopping
+        self.n_episodes = config.get('episodes')
+        self.max_steps = config.get('max_steps')
+        self.rewards = config.get('rewards')
+        self.actions = config.get('actions')
+        self.actions = {int(k):v for k,v in self.actions.items()}
         
         # Create policy network
         self.include_angles = True
-        if self.include_angles:
-            n_states = 7
-        else:
-            n_states = 4
-        n_hidden = 16
+        n_states = 7
+        n_hidden = config.get('hidden_layer')
         self.policy = PolicyNetwork(n_states, n_hidden, self.actions.__len__())
         
     def get_max_simulation_steps(self):
@@ -266,8 +268,8 @@ class Reinforce1LayerController(FlightController):
     
     def train(self):
         # Set training parameters - needs to reset early in training because it'll rarely hit targets
-        episodes = 1000  # How many times to fly
-        max_steps = 3000 # Max time per episode
+        episodes = self.n_episodes  # How many times to fly
+        max_steps = self.max_steps # Max time per episode
         delta_time = self.get_time_interval()
         best_score = -np.inf  # Initialise best score
         logger = ExperimentLogger()
@@ -315,10 +317,10 @@ class Reinforce1LayerController(FlightController):
                 
                 # Calculate reward
                 reward = 0
-                reward += r_hit   * 500  # Huge reward for hitting the target
-                reward += r_ddist * 10   # Change in distance to target, positive means closer
-                # reward -= r_step  * 1     # -1 step penalty
-                reward -= r_exit  * 500   # Huge penalty for exiting bounds, ensure it's always actually penalised for going off screen
+                reward += r_hit   * self.rewards['hit']  # Huge reward for hitting the target
+                reward += r_ddist * self.rewards['ddist']   # Change in distance to target, positive means closer
+                reward += r_step  * self.rewards['step']     # -1 step penalty
+                reward += r_exit  * self.rewards['exit']   # Huge penalty for exiting bounds, ensure it's always actually penalised for going off screen
                 
                 # Clean-up
                 dist0 = dist1
@@ -334,7 +336,7 @@ class Reinforce1LayerController(FlightController):
                     break
             
             # Get returns
-            returns = self.calculate_returns(rewards)
+            returns = self.calculate_returns(rewards, discount_factor=self.discount_factor)
             # print(f"Returns: {returns[-5:]}")
             # print(f"Rewards: {rewards[-5:]}")
             
@@ -343,7 +345,7 @@ class Reinforce1LayerController(FlightController):
                 s_t = states[t]
                 a_t = actions[t]
                 g_t = returns[t]
-                g_norm = self.policy.backward(s_t, a_t, g_t, learning_rate=0.001)
+                g_norm = self.policy.backward(s_t, a_t, g_t, learning_rate=self.learning_rate)
                 
                 # Logging: Capture the norm returned by backward
                 grad_norms.append(g_norm)
@@ -366,8 +368,10 @@ class Reinforce1LayerController(FlightController):
             if episode % 50 == 0:
                 print(f"Episode {episode}: Total Score = {total_score:.2f}")
                 
-            if episode % 500 == 499:  # Plot every 500 episodes, skipping the first and ensuring the last
-                logger.plot()
+            # if episode % 500 == 499:  # Plot every 500 episodes, skipping the first and ensuring the last
+            #     logger.plot()
+                
+        logger.plot()  # Show diagnostic plots at end
     
     def save(self):
         # Helper to save weights

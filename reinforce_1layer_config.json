@@ -1,0 +1,23 @@
+{
+  "actions": {
+    "0": [0.5, 0.5],
+    "1": [0.6, 0.6],
+    "2": [0.4, 0.4],
+    "3": [0.6, 0.4],
+    "4": [0.4, 0.6]
+  },
+  "hidden_layer": 16,
+  "episodes": 1000,
+  "max_steps": 3000,
+  "learning_rate": 0.01,
+  "discount_factor": 0.99,
+  "rewards": {
+    "step": 0,
+    "hit": 500,
+    "exit": -500,
+    "dist": null,
+    "ddist": 10
+  },
+  "early_stopping": true,
+  "crash_range": 4.0
+}
