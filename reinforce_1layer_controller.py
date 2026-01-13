@@ -259,7 +259,11 @@ class Reinforce1LayerController(FlightController):
         sin_theta = np.sin(drone.pitch)
         angular_vel = drone.pitch_velocity 
         
-        return np.array([dx, dy, vx, vy, cos_theta, sin_theta, angular_vel])
+        # Normalize to roughly range [-1, 1]
+        state = np.array([dx, dy, vx, vy, cos_theta, sin_theta, angular_vel])
+        norm_scale = np.array([self.crash_range, self.crash_range, 5.0, 5.0, 1.0, 1.0, 5.0])
+        
+        return state / norm_scale
     
     def get_thrusts(self, drone: Drone, mode='test') -> Tuple[float, float]:
         """
@@ -352,8 +356,8 @@ class Reinforce1LayerController(FlightController):
                 
                 r_hit = drone.has_reached_target_last_update  # Target aqcuired reward. bool, so 0 if no hit, 1 if hit
                 r_ddist = (dist0 - dist1) * (not r_hit)  # Change in distance reward. Positive means closer. 0 if we hit to avoid teleporting cost
-                # r_step = 1  # Step penalty
-                # r_exit = abs(drone.x) > self.crash_range or abs(drone.y) > self.crash_range  # Out of bounds penalty bool, so 0 if not out, 1 if out
+                r_step = 1  # Step penalty
+                r_exit = abs(drone.x) > self.crash_range or abs(drone.y) > self.crash_range  # Out of bounds penalty bool, so 0 if not out, 1 if out
                 if prev_action == action_index:
                     r_strict = prev_action_count
                     prev_action_count += 1
@@ -366,8 +370,8 @@ class Reinforce1LayerController(FlightController):
                 reward = 0
                 reward += r_hit   * self.rewards['hit']  # Huge reward for hitting the target
                 reward += r_ddist * self.rewards['ddist']   # Change in distance to target, positive means closer
-                # reward += r_step  * self.rewards['step']     # -1 step penalty
-                # reward += r_exit  * self.rewards['exit']   # Huge penalty for exiting bounds, ensure it's always actually penalised for going off screen
+                reward += r_step  * self.rewards['step']     # -1 step penalty
+                reward += r_exit  * self.rewards['exit']   # Huge penalty for exiting bounds, ensure it's always actually penalised for going off screen
                 reward += r_strict * self.rewards['strict']
                 
                 # Clean-up
@@ -380,8 +384,8 @@ class Reinforce1LayerController(FlightController):
                 rewards.append(reward)
                 
                 # Early stopping if it goes off screen, to save early training time
-                # if abs(drone.x) > self.crash_range or abs(drone.y) > self.crash_range:
-                #     break
+                if abs(drone.x) > self.crash_range or abs(drone.y) > self.crash_range:
+                    break
             
             # Get returns
             returns = self.calculate_returns(rewards, discount_factor=self.discount_factor)
