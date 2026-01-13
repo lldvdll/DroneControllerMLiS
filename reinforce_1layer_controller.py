@@ -17,24 +17,30 @@ import json
 
 
 class ExperimentLogger:
-    def __init__(self):
+    def __init__(self, n_actions, n_states):
         self.episode_rewards = []
         self.episode_lengths = []
         self.policy_entropies = []
         self.gradient_norms = []
+        self.avg_state_vals = []   # Shape: [Episode, State_Dim]
+        self.avg_action_probs = [] # Shape: [Episode, N_Actions]
+        self.n_actions = n_actions
+        self.n_states = n_states
     
-    def log_episode(self, reward, length, avg_entropy, grad_norm):
+    def log_episode(self, reward, length, avg_entropy, grad_norm, avg_state, avg_probs):
         self.episode_rewards.append(reward)
         self.episode_lengths.append(length)
         self.policy_entropies.append(avg_entropy)
         self.gradient_norms.append(grad_norm)
+        self.avg_state_vals.append(avg_state)
+        self.avg_action_probs.append(avg_probs)
         
     def plot(self, window=50):
         """
         Plots the training history.
         window: Moving average window size for smoothing
         """
-        fig, axs = plt.subplots(2, 2, figsize=(12, 8))
+        fig, axs = plt.subplots(2, 3, figsize=(18, 8))
         
         # Helper for moving average
         def moving_average(data, w):
@@ -63,6 +69,31 @@ class ExperimentLogger:
         axs[1, 1].plot(self.gradient_norms, color='orange')
         axs[1, 1].set_title("Avg Gradient Norm")
         axs[1, 1].set_yscale('log') # Log scale helps see explosions
+        
+        # Input Scale
+        state_data = np.array(self.avg_state_vals)
+        if len(state_data) > 0:
+            labels = ['dx', 'dy', 'vx', 'vy', r'cos$\theta$', r'sin$\theta$', 'av']
+            labels = labels[:self.n_states]
+            for i in range(self.n_states):
+                axs[0, 2].plot(state_data[:, i], label=labels[i], alpha=0.7)
+            
+            axs[0, 2].set_title("Avg Input Magnitude (Should be < 1.0)")
+            axs[0, 2].legend(fontsize='small', loc='upper right')
+            axs[0, 2].grid(True, alpha=0.3)
+
+        # Action Probabilities
+        prob_data = np.array(self.avg_action_probs)
+        if len(prob_data) > 0:
+            x = range(len(prob_data))
+            y = [prob_data[:, i] for i in range(self.n_actions)]
+            labels = ["Hover", "Up", "Down", "Right", "Left"]
+            
+            axs[1, 2].stackplot(x, *y, labels=labels, alpha=0.6)
+            axs[1, 2].set_title("Action Probability Distribution")
+            axs[1, 2].set_ylim(0, 1.0)
+            axs[1, 2].legend(loc='lower left', fontsize='small')
+        
         
         plt.tight_layout()
         plt.show()
@@ -199,9 +230,9 @@ class Reinforce1LayerController(FlightController):
         
         # Create policy network
         self.include_angles = True
-        n_states = 7
+        self.n_states = 7
         n_hidden = config.get('hidden_layer')
-        self.policy = PolicyNetwork(n_states, n_hidden, self.actions.__len__())
+        self.policy = PolicyNetwork(self.n_states, n_hidden, self.actions.__len__())
         
     def get_max_simulation_steps(self):
             return 1000 # You can alter the amount of steps you want your program to run for here
@@ -272,7 +303,7 @@ class Reinforce1LayerController(FlightController):
         max_steps = self.max_steps # Max time per episode
         delta_time = self.get_time_interval()
         best_score = -np.inf  # Initialise best score
-        logger = ExperimentLogger()
+        logger = ExperimentLogger(len(self.actions), self.n_states)
         
         for episode in range(episodes):
             drone = self.init_drone(mode='random')
@@ -280,6 +311,8 @@ class Reinforce1LayerController(FlightController):
             # Logging
             entropies = []
             grad_norms = []
+            episode_states = [] # To store abs values
+            episode_probs = []
             
             # Initialise episode data stores for learning 
             states = []
@@ -296,10 +329,12 @@ class Reinforce1LayerController(FlightController):
                 state = self.get_state_vector(drone)
                 thrusts, action_index, action_probs = self.get_thrusts(drone, mode='train')
                 
-                # Logging Calculate Entropy of current state: -sum(p * log(p))
-                # probs is returned by forward()
+                # Logging 
+                # Calculate Entropy of current state: -sum(p * log(p))
                 entropy = -np.sum(action_probs * np.log(action_probs + 1e-9))
                 entropies.append(entropy)
+                episode_states.append(np.abs(state))
+                episode_probs.append(action_probs)
                 
                 # Step simulation
                 drone.set_thrust(thrusts)
@@ -358,11 +393,16 @@ class Reinforce1LayerController(FlightController):
                 print(f"New High Score: {best_score:.2f} (Saved)")
                 
             # Logging: Log averages for the episode
+            avg_state_mag = np.mean(np.array(episode_states), axis=0)
+            avg_action_dist = np.mean(np.array(episode_probs), axis=0)
+            
             logger.log_episode(
                 reward=sum(rewards),
                 length=len(states),
                 avg_entropy=np.mean(entropies),
-                grad_norm=np.mean(grad_norms)
+                grad_norm=np.mean(grad_norms),
+                avg_state=avg_state_mag,
+                avg_probs=avg_action_dist
             )
                 
             if episode % 50 == 0:
