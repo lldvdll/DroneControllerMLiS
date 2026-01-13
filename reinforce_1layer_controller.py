@@ -105,14 +105,17 @@ class PolicyNetwork:
         """
         self.output_size = output_size
         
+        # This combines the "Xavier" scaling and the "Entropy" reduction
+        # Reduces the weights so initial action probabilities are closer to unifrom
+        target_std = (1.0 / np.sqrt(input_size)) * 0.1
+        
         # Hidden layer
-        self.W1 = np.random.randn(hidden_size, input_size)
-        self.W1 = self.W1 / np.sqrt(input_size)  # Normalisation for gradient stabilisation
+        self.W1 = np.random.normal(loc=0.0, scale=target_std, size=(hidden_size, input_size))
         self.b1 = np.zeros(hidden_size)
         
         # Output layer
+        self.W1 = np.random.normal(loc=0.0, scale=target_std, size=(output_size, hidden_size))
         self.W2 = np.random.randn(output_size, hidden_size)
-        self.W2 = self.W2 / np.sqrt(hidden_size)  # Normalisation for gradient stabilisation
         self.b2 = np.zeros(output_size)
         
         print(f'Input size: {input_size}, Hidden size: {hidden_size}, Output size: {output_size}')
@@ -140,7 +143,8 @@ class PolicyNetwork:
         z2 = self.W2 @ h1 + self.b2
         
         # Softmax
-        exp_logits = np.exp(z2 - np.max(z2))  # Subtracting max for numerical stability - so exp doesn't explode
+        z2_norm = z2 - np.max(z2) # Subtracting max for numerical stability - so exp doesn't explode
+        exp_logits = np.exp(z2_norm)  
         p = exp_logits/np.sum(exp_logits)
         
         return p, h1  # Return hidden state for backprop
@@ -252,13 +256,11 @@ class Reinforce1LayerController(FlightController):
         vy = drone.velocity_y 
         
         # get angles and angular velocity
-        if self.include_angles:
-            cos_theta = np.cos(drone.pitch)
-            sin_theta = np.sin(drone.pitch)
-            angular_vel = drone.pitch_velocity 
-            return np.array([dx, dy, vx, vy, cos_theta, sin_theta, angular_vel])
-        else:
-            return np.array([dx, dy, vx, vy])
+        cos_theta = np.cos(drone.pitch)
+        sin_theta = np.sin(drone.pitch)
+        angular_vel = drone.pitch_velocity 
+        
+        return np.array([dx, dy, vx, vy, cos_theta, sin_theta, angular_vel])
     
     def get_thrusts(self, drone: Drone, mode='test') -> Tuple[float, float]:
         """
