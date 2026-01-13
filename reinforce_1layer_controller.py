@@ -181,6 +181,7 @@ class Reinforce1LayerController(FlightController):
         # Set learning rate
         self.learning_rate = 0.01  # Probably want to pass this as a parameter?
         self.filename = "reinforce_1layer_weights.npy"
+        self.crash_range = 2.0  # Set edge of screen for early stopping
         
         # Define action space
         self.actions = {
@@ -310,7 +311,7 @@ class Reinforce1LayerController(FlightController):
                 r_hit = drone.has_reached_target_last_update  # Target aqcuired reward. bool, so 0 if no hit, 1 if hit
                 r_ddist = (dist0 - dist1) * (not r_hit)  # Change in distance reward. Positive means closer. 0 if we hit to avoid teleporting cost
                 r_step = 1  # Step penalty
-                r_exit = abs(drone.x) > 2.0 or abs(drone.y) > 2.0  # Out of bounds penalty bool, so 0 if not out, 1 if out
+                r_exit = abs(drone.x) > self.crash_range or abs(drone.y) > self.crash_range  # Out of bounds penalty bool, so 0 if not out, 1 if out
                 
                 # Calculate reward
                 reward = 0
@@ -329,7 +330,7 @@ class Reinforce1LayerController(FlightController):
                 rewards.append(reward)
                 
                 # Early stopping if it goes off screen, to save early training time
-                if abs(drone.x) > 2.0 or abs(drone.y) > 2.0:
+                if abs(drone.x) > self.crash_range or abs(drone.y) > self.crash_range:
                     break
             
             # Get returns
