@@ -11,27 +11,60 @@ from flight_controller import FlightController
 from drone import Drone
 from typing import Tuple 
 import numpy as np
+import matplotlib.pyplot as plt
 
-def get_state_vector(self, drone: Drone):
-    """
-    Converts the Drone object into a flat numpy array of numbers 
-    that the Neural Network can read.
-    """
-    # calculate dx, dy
-    target = drone.get_next_target()
-    dx = (target[0] - drone.x) 
-    dy = (target[1] - drone.y) 
+
+
+class ExperimentLogger:
+    def __init__(self):
+        self.episode_rewards = []
+        self.episode_lengths = []
+        self.policy_entropies = []
+        self.gradient_norms = []
     
-    # get velocities
-    vx = drone.velocity_x 
-    vy = drone.velocity_y 
-    
-    # get angles and angular velocity, apply trig to avoid discontinuity at 0,360
-    cos_theta = np.cos(drone.pitch)
-    sin_theta = np.sin(drone.pitch)
-    angular_vel = drone.pitch_velocity 
-    
-    return np.array([dx, dy, vx, vy, cos_theta, sin_theta, angular_vel])
+    def log_episode(self, reward, length, avg_entropy, grad_norm):
+        self.episode_rewards.append(reward)
+        self.episode_lengths.append(length)
+        self.policy_entropies.append(avg_entropy)
+        self.gradient_norms.append(grad_norm)
+        
+    def plot(self, window=50):
+        """
+        Plots the training history.
+        window: Moving average window size for smoothing
+        """
+        fig, axs = plt.subplots(2, 2, figsize=(12, 8))
+        
+        # Helper for moving average
+        def moving_average(data, w):
+            return np.convolve(data, np.ones(w), 'valid') / w
+
+        # Rewards
+        axs[0, 0].plot(self.episode_rewards, alpha=0.3, color='blue', label='Raw')
+        if len(self.episode_rewards) > window:
+            ma = moving_average(self.episode_rewards, window)
+            axs[0, 0].plot(range(window-1, len(self.episode_rewards)), ma, color='red', label='Avg')
+        axs[0, 0].set_title("Total Reward")
+        axs[0, 0].legend()
+
+        # Entropy (The "Confidence" Meter)
+        axs[0, 1].plot(self.policy_entropies, color='green')
+        axs[0, 1].set_title("Policy Entropy (Randomness)")
+        axs[0, 1].set_xlabel("Episode")
+        # Reference line for max entropy (log(5 actions) ≈ 1.6)
+        axs[0, 1].axhline(y=1.6, color='black', linestyle='--', alpha=0.5, label='Max Random')
+
+        # Episode Length
+        axs[1, 0].plot(self.episode_lengths, color='purple')
+        axs[1, 0].set_title("Episode Length (Survival Time)")
+
+        # Gradient Norms (The "Stability" Meter)
+        axs[1, 1].plot(self.gradient_norms, color='orange')
+        axs[1, 1].set_title("Avg Gradient Norm")
+        axs[1, 1].set_yscale('log') # Log scale helps see explosions
+        
+        plt.tight_layout()
+        plt.show()
     
 class PolicyNetwork:
     def __init__(self, input_size, hidden_size, output_size):
@@ -124,12 +157,22 @@ class PolicyNetwork:
         # Backprop to layer 1 weights
         dJ_dW1 = np.outer(dJ_dz1, state) # dJ/dW1 = (dJ/dz1) * (dz1/dW1), where dz1/dW1 is state
         dJ_db1 = dJ_dz1                  # dJ/db1 = (dJ/dz1) * (dz1/db1), where dz1/db1 is 1
+        
+        # For entropy logging
+        total_norm = np.linalg.norm(np.concatenate([
+            dJ_dW1.flatten(), 
+            dJ_dW2.flatten(), 
+            dJ_db1.flatten(), 
+            dJ_db2.flatten()
+        ]))
 
         # Update weights (gradient ascent - maximise rewards)
         self.W1 += learning_rate * dJ_dW1
         self.b1 += learning_rate * dJ_db1
         self.W2 += learning_rate * dJ_dW2
         self.b2 += learning_rate * dJ_db2
+        
+        return total_norm
     
 class Reinforce1LayerController(FlightController):
 
@@ -138,6 +181,7 @@ class Reinforce1LayerController(FlightController):
         # Set learning rate
         self.learning_rate = 0.01  # Probably want to pass this as a parameter?
         self.filename = "reinforce_1layer_weights.npy"
+        
         # Define action space
         self.actions = {
             0: (0.5, 0.5),  # Hover
@@ -195,7 +239,7 @@ class Reinforce1LayerController(FlightController):
             # Exploration: Sample an action during training
             action_index = np.random.choice(len(action_probs), p=action_probs)
             thrusts = self.actions[action_index]
-            return thrusts, action_index
+            return thrusts, action_index, action_probs
         elif mode == 'test':
             # Greedy: Pick the best during testing
             action_index = np.argmax(action_probs)
@@ -220,15 +264,19 @@ class Reinforce1LayerController(FlightController):
         return returns
     
     def train(self):
-        
         # Set training parameters - needs to reset early in training because it'll rarely hit targets
-        episodes = 20000  # How many times to fly
-        max_steps = 2000 # Max time per episode
+        episodes = 1000  # How many times to fly
+        max_steps = 3000 # Max time per episode
         delta_time = self.get_time_interval()
         best_score = -np.inf  # Initialise best score
+        logger = ExperimentLogger()
         
         for episode in range(episodes):
             drone = self.init_drone(mode='random')
+            
+            # Logging
+            entropies = []
+            grad_norms = []
             
             # Initialise episode data stores for learning 
             states = []
@@ -243,7 +291,12 @@ class Reinforce1LayerController(FlightController):
                 
                 # Run forward pass
                 state = self.get_state_vector(drone)
-                thrusts, action_index = self.get_thrusts(drone, mode='train')
+                thrusts, action_index, action_probs = self.get_thrusts(drone, mode='train')
+                
+                # Logging Calculate Entropy of current state: -sum(p * log(p))
+                # probs is returned by forward()
+                entropy = -np.sum(action_probs * np.log(action_probs + 1e-9))
+                entropies.append(entropy)
                 
                 # Step simulation
                 drone.set_thrust(thrusts)
@@ -261,10 +314,10 @@ class Reinforce1LayerController(FlightController):
                 
                 # Calculate reward
                 reward = 0
-                reward += r_hit   * 100  # Huge reward for hitting the target
+                reward += r_hit   * 500  # Huge reward for hitting the target
                 reward += r_ddist * 10   # Change in distance to target, positive means closer
-                reward -= r_step  * 1     # -1 step penalty
-                reward -= r_exit  * 1000   # Huge penalty for exiting bounds
+                # reward -= r_step  * 1     # -1 step penalty
+                reward -= r_exit  * 500   # Huge penalty for exiting bounds, ensure it's always actually penalised for going off screen
                 
                 # Clean-up
                 dist0 = dist1
@@ -289,7 +342,10 @@ class Reinforce1LayerController(FlightController):
                 s_t = states[t]
                 a_t = actions[t]
                 g_t = returns[t]
-                self.policy.backward(s_t, a_t, g_t, learning_rate=0.001)
+                g_norm = self.policy.backward(s_t, a_t, g_t, learning_rate=0.001)
+                
+                # Logging: Capture the norm returned by backward
+                grad_norms.append(g_norm)
                 
             total_score = sum(rewards)
             if total_score > best_score:
@@ -298,8 +354,19 @@ class Reinforce1LayerController(FlightController):
                 self.save()
                 print(f"New High Score: {best_score:.2f} (Saved)")
                 
+            # Logging: Log averages for the episode
+            logger.log_episode(
+                reward=sum(rewards),
+                length=len(states),
+                avg_entropy=np.mean(entropies),
+                grad_norm=np.mean(grad_norms)
+            )
+                
             if episode % 50 == 0:
                 print(f"Episode {episode}: Total Score = {total_score:.2f}")
+                
+            if episode % 500 == 499:  # Plot every 500 episodes, skipping the first and ensuring the last
+                logger.plot()
     
     def save(self):
         # Helper to save weights
