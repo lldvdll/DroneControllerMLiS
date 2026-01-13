@@ -148,7 +148,7 @@ class PolicyNetwork:
         
         return p, h1  # Return hidden state for backprop
     
-    def backward(self, state, a_t, g_t, learning_rate=0.001):
+    def backward(self, state, a_t, g_t, learning_rate=0.001, weight_decay=0.01):
         """
         Runs a backwards pass through the network, 
         updating the weights and biases.
@@ -200,6 +200,10 @@ class PolicyNetwork:
             dJ_db1.flatten(), 
             dJ_db2.flatten()
         ]))
+        
+        # Weight Decay (Prevents drift)
+        dJ_dW1 -= weight_decay * self.W1
+        dJ_dW2 -= weight_decay * self.W2
 
         # Update weights (gradient ascent - maximise rewards)
         self.W1 += learning_rate * dJ_dW1
@@ -261,7 +265,7 @@ class Reinforce1LayerController(FlightController):
         
         # Normalize to roughly range [-1, 1]
         state = np.array([dx, dy, vx, vy, cos_theta, sin_theta, angular_vel])
-        norm_scale = np.array([self.crash_range, self.crash_range, 5.0, 5.0, 1.0, 1.0, 5.0])
+        norm_scale = self.config.get('input_normalisation')
         
         return state / norm_scale
     
@@ -397,7 +401,9 @@ class Reinforce1LayerController(FlightController):
                 s_t = states[t]
                 a_t = actions[t]
                 g_t = returns[t]
-                g_norm = self.policy.backward(s_t, a_t, g_t, learning_rate=self.learning_rate)
+                g_norm = self.policy.backward(s_t, a_t, g_t, 
+                                              learning_rate=self.config.get('learning_rate'),
+                                              weight_decay=self.config.get('weight_decay'))
                 
                 # Logging: Capture the norm returned by backward
                 grad_norms.append(g_norm)
