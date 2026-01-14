@@ -23,9 +23,9 @@ class ExperimentLogger:
         self.gradient_norms = []
         self.filepath = os.path.join(BASE_PATH, f"{experiment_name}_training_log")
 
-    def log_episode(self, total_reward, discounted_return, grad_norm):
-        self.episode_rewards.append(total_reward)
-        self.episode_returns.append(discounted_return)
+    def log_episode(self, episode_reward, initial_return, grad_norm):
+        self.episode_rewards.append(episode_reward)
+        self.episode_returns.append(initial_return)
         self.gradient_norms.append(grad_norm)
 
     def generate_plots(self):
@@ -283,12 +283,12 @@ class LinearReinforceController(FlightController):
             )
             
             # Update log
-            score = sum(rewards)
-            self.logger.log_episode(rewards, returns, grad_norm)
+            total_reward = sum(rewards)
+            self.logger.log_episode(total_reward, returns[0], grad_norm)
             
             # Log
             if episode % 10 == 0:
-                print(f"Episode {episode}: Score: {score:.2f}")
+                print(f"Episode {episode}: Total Reward: {total_reward:.2f}")
                 
             # Save weights periodically, incase it craps out
             if episode % 100 == 0:
