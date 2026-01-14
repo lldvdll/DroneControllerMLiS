@@ -427,7 +427,7 @@ class Reinforce1LayerController(FlightController):
                 
             # Save periodically
             if episode % 100 == 0:
-                self.save("reinforce_1layer_weights_latest.npy")
+                self.save(filename="reinforce_1layer_weights_latest.npy")
                 
             # Logging: Log averages for the episode
             avg_state_mag = np.mean(np.array(episode_states), axis=0)
@@ -450,9 +450,11 @@ class Reinforce1LayerController(FlightController):
                 
         logger.plot()  # Show diagnostic plots at end
     
-    def save(self):
+    def save(self, filename=None):
         # Helper to save weights
-        np.savez(self.filename, 
+        if filename is None:
+            filename = self.filename
+        np.savez(filename, 
                  W1=self.policy.W1, b1=self.policy.b1, 
                  W2=self.policy.W2, b2=self.policy.b2)
                  
