@@ -68,8 +68,9 @@ class ExperimentLogger:
 
 class Policy():
     def __init__(self, input_size, output_size):
-        # Initialize weights to zeros
-        self.weights = np.zeros((input_size, output_size))        
+        # Initialize weights with random values
+        self.weights = np.random.randn(input_size, output_size)
+        print(f"Initial Weights: {self.weights}")
     
     def forward(self, state):
         return state @ self.weights  # Linear model
