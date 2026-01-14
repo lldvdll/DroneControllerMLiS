@@ -274,6 +274,15 @@ class LinearReinforceController(FlightController):
             
             # Run episode
             states, actions, rewards = self.run_episode()
+            
+            # Log
+            total_reward = sum(rewards)
+            if episode % 10 == 0:
+                print(f"Episode {episode}: Total Reward: {total_reward:.2f}")
+                
+            # Save weights periodically, incase it craps out
+            if episode % 100 == 0:
+                self.save()
                 
             # Calculate returns
             returns = self.get_returns(rewards)
@@ -287,17 +296,8 @@ class LinearReinforceController(FlightController):
                 self.config['hyperparameters']['learning_rate']
             )
             
-            # Update log
-            total_reward = sum(rewards)
+            # Update logger
             self.logger.log_episode(total_reward, returns[0], grad_norm)
-            
-            # Log
-            if episode % 10 == 0:
-                print(f"Episode {episode}: Total Reward: {total_reward:.2f}")
-                
-            # Save weights periodically, incase it craps out
-            if episode % 100 == 0:
-                self.save()
                 
         # Save final weights
         self.save()
