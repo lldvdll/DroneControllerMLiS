@@ -1,15 +1,11 @@
 {
-  "experiment_name": "",
+  "experiment_name": "001_test",
   "hyperparameters": {
     "gamma": 0.99, 
     "sigma": 0.1,  
     "learning_rate": 0.0005,
-    "n_episodes": 2000,
+    "n_episodes": 500,
     "max_steps": 1000
-  },
-  "policy": {
-    "input_size": 7,
-    "output_size": 2
   },
   "rewards": {
     "hit_bonus": 100.0,

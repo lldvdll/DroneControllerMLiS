@@ -2,7 +2,66 @@ import numpy as np
 import json
 from flight_controller import FlightController
 from drone import Drone
+import matplotlib.pyplot as plt
+import os
 
+BASE_PATH = os.path.join(
+    os.path.dirname(__file__), 
+    "experiments", 
+    "continuous_linear"
+    )
+
+class ExperimentLogger:
+    """
+    Diagnostics for training process
+        Keeps track of rewards, returns, and gradients
+        Generates plots
+    """
+    def __init__(self, experiment_name):
+        self.episode_rewards = []
+        self.episode_returns = []
+        self.gradient_norms = []
+        self.filepath = os.path.join(BASE_PATH, f"{experiment_name}_training_log")
+
+    def log_episode(self, total_reward, discounted_return, grad_norm=None):
+        self.episode_rewards.append(total_reward)
+        self.episode_returns.append(discounted_return)
+        if grad_norm is not None:
+            self.gradient_norms.append(grad_norm)
+
+    def save_plots(self):
+        fig, axs = plt.subplots(3, 1, figsize=(10, 15))
+        
+        # Plot 1: Raw Rewards (What the game gave us)
+        axs[0].plot(self.episode_rewards, label='Total Reward', color='blue', alpha=0.6)
+        # Add a moving average 
+        lag = 20
+        if len(self.episode_rewards) > lag:
+            avg = np.convolve(self.episode_rewards, np.ones(lag)/lag, mode='valid')
+            axs[0].plot(range(lag-1, len(self.episode_rewards)), avg, color='red', label=f'{lag}-Ep Avg')
+        axs[0].set_title('Episode Rewards (Survival + Targets)')
+        axs[0].set_xlabel('Episode')
+        axs[0].legend()
+        axs[0].grid(True)
+
+        # Plot 2: Discounted Returns (What the Agent sees)
+        axs[1].plot(self.episode_returns, label='G_0 (Discounted)', color='green', alpha=0.6)
+        axs[1].set_title('Discounted Returns (G_0)')
+        axs[1].set_xlabel('Episode')
+        axs[1].grid(True)
+
+        # Plot 3: Gradient Norms (Stability)
+        if self.gradient_norms:
+            axs[2].plot(self.gradient_norms, label='Gradient Norm', color='purple')
+            axs[2].set_title('Gradient Magnitudes (Learning Stability)')
+            axs[2].set_xlabel('Update Step')
+            axs[2].set_yscale('log') # Log scale is better for gradients
+            axs[2].grid(True)
+
+        plt.tight_layout()
+        plt.savefig(f"{self.filepath}.png")
+        plt.close()
+        print(f"Plots saved to {self.filepath}.png")
 
 class Policy():
     def __init__(self, input_size, output_size):
@@ -12,14 +71,36 @@ class Policy():
     def forward(self, state):
         return state @ self.weights  # Linear model
     
-    def backward(self):
-        pass
-    
-    def update(self):
+    def backward(self, states, actions, returns, sigma, learning_rate):
         """
-        Updates policy weights from returns using REINFORCE
-        """
-        pass
+        Performs the REINFORCE update on the weights.
+        Returns: The magnitude (norm) of the gradient for logging.
+        """        
+        # rerun forward pass
+        mus = states @ self.weights 
+        
+        # Action error (exploration noise)
+        error = actions - mus
+        
+        # Gradient of Log-Probability (direction to change policy in)
+        grad_log_pi = error / (sigma ** 2)
+        
+        # Credit assignment (good/+ve >> uphill/Reinforce, bad/-ve >> downhill/suppress)
+        weighted_grads = grad_log_pi * returns[:, np.newaxis]
+        
+        # Sum over time steps to get total gradient for the batch
+        # Converts "change in action" (dlogp/dmu) to "change in weights" (dlogp/dW)
+        gradient_matrix = states.T @ weighted_grads
+        
+        # Caluclate update for gradient ascent
+        # Note: Divide by episode length incase they vary - keeps learning rate stable
+        update_step = (learning_rate * gradient_matrix) / len(states)
+        
+        # Update the weights
+        self.weights += update_step
+        
+        # Return the "Size" of the update for diagnostics
+        return np.linalg.norm(update_step)
 
 class ContinuousLinearController(FlightController):
     def __init__(self):
@@ -28,10 +109,11 @@ class ContinuousLinearController(FlightController):
         with open('continuous_linear_config.json', 'r') as f:
             self.config = json.load(f)
         
-        # Initialise policy
-        input_size = self.config['input_size']
-        output_size = self.config['output_size']
-        self.policy = Policy(input_size, output_size)
+        # Initialise policy - 7 states in, 2 actions out
+        self.policy = Policy(7, 2)
+        
+        # Initialise logger
+        self.logger = ExperimentLogger(self.config['experiment_name'])
 
     def get_state(self, drone: Drone):
         """
@@ -184,7 +266,7 @@ class ContinuousLinearController(FlightController):
             returns = self.get_returns(rewards)
             
             # Update policy
-            self.policy.update(states, actions, returns)
+            self.update_policy(states, actions, returns)
             
             # Log
             if episode % 50 == 0:
@@ -192,9 +274,38 @@ class ContinuousLinearController(FlightController):
                 
         self.save()
 
-    def save(self):
+    def update_policy(self, states, actions, rewards):
+        """
+        Update policy weights 
+            Get returns
+            Update policy
+        """
+        returns = self.get_returns(rewards)
         
-        pass
+        states = np.array(states)
+        actions = np.array(actions)
+        returns = np.array(returns)
+        
+        self.policy.backward(
+            states, 
+            actions, 
+            returns, 
+            self.config['hyperparameters']['sigma'], 
+            self.config['hyperparameters']['learning_rate']
+        )
 
-    def load(self):
-        pass
+    def save(self):
+        path = os.path.join(BASE_PATH, self.config['experiment_name'], '.npy')
+        np.save(path, self.policy.weights)
+        print("Weights saved.")
+
+    def load(self, filename=None):
+        if filename is None:
+            path = os.path.join(BASE_PATH, self.config['experiment_name'], '.npy')
+        else:
+            path = os.path.join(BASE_PATH, filename, '.npy')
+        try:
+            self.policy.weights = np.load(path)
+            print("Weights loaded.")
+        except:
+            print("No weights found.")
