@@ -148,7 +148,7 @@ class PolicyNetwork:
         
         return p, h1  # Return hidden state for backprop
     
-    def backward(self, state, a_t, g_t, learning_rate=0.001, weight_decay=0.01):
+    def backward(self, state, a_t, g_t, learning_rate=0.001, weight_decay=0.01, gradient_clip=1.0):
         """
         Runs a backwards pass through the network, 
         updating the weights and biases.
@@ -201,7 +201,16 @@ class PolicyNetwork:
             dJ_db2.flatten()
         ]))
         
-        # Weight Decay (Prevents drift)
+        # Gradient clipping - prevents gradient explosion which leads to policy collapse
+        if total_norm > gradient_clip:
+            scale = gradient_clip / (total_norm + 1e-6)
+            dJ_dW1 *= scale 
+            dJ_db1 *= scale
+            dJ_dW2 *= scale
+            dJ_db2 *= scale
+            total_norm = 1.0 # Update for logging
+        
+        # Weight decay regularisation - allows network to escape local minima, e.g. policy collapse
         dJ_dW1 -= weight_decay * self.W1
         dJ_dW2 -= weight_decay * self.W2
 
@@ -403,17 +412,22 @@ class Reinforce1LayerController(FlightController):
                 g_t = returns[t]
                 g_norm = self.policy.backward(s_t, a_t, g_t, 
                                               learning_rate=self.config.get('learning_rate'),
-                                              weight_decay=self.config.get('weight_decay'))
+                                              weight_decay=self.config.get('weight_decay'),
+                                              gradient_clip=self.config.get('gradient_clip'))
                 
                 # Logging: Capture the norm returned by backward
                 grad_norms.append(g_norm)
-                
+            
+            # Save best scores
             total_score = sum(rewards)
             if total_score > best_score:
                 best_score = total_score
-                # Save the weights to a file (or memory)
                 self.save()
                 print(f"New High Score: {best_score:.2f} (Saved)")
+                
+            # Save periodically
+            if episode % 100 == 0:
+                self.save("reinforce_1layer_weights_latest.npy")
                 
             # Logging: Log averages for the episode
             avg_state_mag = np.mean(np.array(episode_states), axis=0)
