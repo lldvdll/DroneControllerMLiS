@@ -227,6 +227,35 @@ class LinearReinforceController(FlightController):
         returns = (returns - returns.mean()) / (returns.std() + 1e-8)
             
         return returns
+    
+    def run_episode(self):
+            
+        states = []
+        actions = []
+        rewards = []
+        drone = self.init_drone()
+        
+        for step in range(self.config['hyperparameters']['max_steps']):
+            
+            # Get states and actions
+            state = self.get_state(drone)
+            action = self.get_action(state, mode='train')
+            
+            # Step environment
+            thrust = self.convert_action_to_thrust(action)
+            drone.set_thrust(thrust)
+            drone.step_simulation(self.get_time_interval())
+            
+            # Get rewards
+            reward = self.get_reward(drone)
+            
+            # Store data
+            states.append(state)
+            actions.append(action)
+            rewards.append(reward)
+            
+        return states, actions, rewards
+        
 
     def train(self):
         """
@@ -241,34 +270,10 @@ class LinearReinforceController(FlightController):
         """
         print(f"Starting Training: {self.config['experiment_name']}")
         
-        n_episodes = self.config['hyperparameters']['n_episodes']
-        max_steps = self.config['hyperparameters']['max_steps']
-
-        for episode in range(n_episodes):
+        for episode in range(self.config['hyperparameters']['n_episodes']):
             
-            states = []
-            actions = []
-            rewards = []
-            drone = self.init_drone()
-            
-            for step in range(max_steps):
-                
-                # Get states and actions
-                state = self.get_state(drone)
-                action = self.get_action(state, mode='train')
-                
-                # Step environment
-                thrust = self.convert_action_to_thrust(action)
-                drone.set_thrust(thrust)
-                drone.step_simulation(self.get_time_interval())
-                
-                # Get rewards
-                reward = self.get_reward(drone)
-                
-                # Store data
-                states.append(state)
-                actions.append(action)
-                rewards.append(reward)
+            # Run episode
+            states, actions, rewards = self.run_episode()
                 
             # Calculate returns
             returns = self.get_returns(rewards)
