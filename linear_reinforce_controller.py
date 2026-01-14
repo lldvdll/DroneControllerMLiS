@@ -326,15 +326,20 @@ class LinearReinforceController(FlightController):
         )
 
     def save(self):
-        path = os.path.join(BASE_PATH, self.config['experiment_name']+'.npy')
+        # Save weights
+        path = os.path.join(BASE_PATH, self.config['experiment_name']+'_weights.npy')
         np.save(path, self.policy.weights)
+        # Save config
+        path = os.path.join(BASE_PATH, self.config['experiment_name']+'_config.json')
+        with open(path, 'w') as f:
+            json.dump(self.config, f, indent=4)
         print("Weights saved.")
 
     def load(self, filename=None):
         if filename is None:
-            path = os.path.join(BASE_PATH, self.config['experiment_name']+'.npy')
+            path = os.path.join(BASE_PATH, self.config['experiment_name']+'_weights.npy')
         else:
-            path = os.path.join(BASE_PATH, filename+'.npy')
+            path = os.path.join(BASE_PATH, filename+'_weights.npy')
         try:
             self.policy.weights = np.load(path)
             print("Weights loaded.")
