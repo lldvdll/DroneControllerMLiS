@@ -29,7 +29,7 @@ class ExperimentLogger:
         self.gradient_norms.append(grad_norm)
 
     def generate_plots(self):
-        fig, axs = plt.subplots(3, 1, figsize=(10, 15))
+        fig, axs = plt.subplots(2, 1, figsize=(10, 10))
         
         # Plot 1: Raw Rewards
         axs[0].plot(self.episode_rewards, label='Total Reward', color='blue', alpha=0.6)
@@ -47,19 +47,19 @@ class ExperimentLogger:
         axs[0].legend()
         axs[0].grid(True)
 
-        # Plot 2: Discounted Returns
-        axs[1].plot(self.episode_returns, label='G_0', color='green', alpha=0.6)
-        axs[1].set_title('Discounted Returns (G_0)')
-        axs[1].set_xlabel('Episode')
-        axs[1].grid(True)
+        # # Plot 2: Discounted Returns
+        # axs[1].plot(self.episode_returns, label='G_0', color='green', alpha=0.6)
+        # axs[1].set_title('Discounted Returns (G_0)')
+        # axs[1].set_xlabel('Episode')
+        # axs[1].grid(True)
 
         # Plot 3: Gradients
         if self.gradient_norms:
-            axs[2].plot(self.gradient_norms, label='Gradient Norm', color='purple')
-            axs[2].set_title('Gradient Norms')
-            axs[2].set_xlabel('Update Step')
-            axs[2].set_yscale('log')
-            axs[2].grid(True)
+            axs[1].plot(self.gradient_norms, label='Gradient Norm', color='purple')
+            axs[1].set_title('Gradient Norms')
+            axs[1].set_xlabel('Update Step')
+            axs[1].set_yscale('log')
+            axs[1].grid(True)
 
         plt.tight_layout()
         plt.savefig(f"{self.filepath}.png")
