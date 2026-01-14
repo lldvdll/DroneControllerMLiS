@@ -365,10 +365,10 @@ class Reinforce1LayerController(FlightController):
                 ######## REWARDS ########
                 # Calculate distance to target
                 target = drone.get_next_target()
-                dist1 = np.linalg.norm([target[0] - drone.x, target[1] - drone.y])
+                r_dist = np.linalg.norm([target[0] - drone.x, target[1] - drone.y])
                 
                 r_hit = drone.has_reached_target_last_update  # Target aqcuired reward. bool, so 0 if no hit, 1 if hit
-                r_ddist = (dist0 - dist1) * (not r_hit)  # Change in distance reward. Positive means closer. 0 if we hit to avoid teleporting cost
+                r_ddist = (dist0 - r_dist) * (not r_hit)  # Change in distance reward. Positive means closer. 0 if we hit to avoid teleporting cost
                 r_step = 1  # Step penalty
                 r_exit = abs(drone.x) > self.crash_range or abs(drone.y) > self.crash_range  # Out of bounds penalty bool, so 0 if not out, 1 if out
                 if prev_action == action_index:
@@ -382,13 +382,14 @@ class Reinforce1LayerController(FlightController):
                 # Calculate reward
                 reward = 0
                 reward += r_hit   * self.rewards['hit']  # Huge reward for hitting the target
+                reward += r_dist  * self.rewards['dist']    # Distance to target
                 reward += r_ddist * self.rewards['ddist']   # Change in distance to target, positive means closer
                 reward += r_step  * self.rewards['step']     # -1 step penalty
                 reward += r_exit  * self.rewards['exit']   # Huge penalty for exiting bounds, ensure it's always actually penalised for going off screen
                 reward += r_strict * self.rewards['strict']
                 
                 # Clean-up
-                dist0 = dist1
+                dist0 = r_dist
                 #########################
                 
                 # Store episode data
