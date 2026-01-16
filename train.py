@@ -6,6 +6,9 @@ Features:
 - Automatic experiment tracking in runs/ directory
 - Save Q-table, plots, and evaluation reports
 - Resume training from checkpoints
+
+Usage:
+    python train.py --mode curriculum --episodes 10000 --eval-after
 """
 
 import argparse
@@ -13,6 +16,8 @@ import os
 from datetime import datetime
 from SARSA_controller import CustomController
 from evaluation import evaluate, print_report, save_report
+from pathlib import Path
+import analysis
 
 
 def parse_args():
@@ -89,6 +94,20 @@ def parse_args():
         help="Random seed for evaluation"
     )
     
+    # Analysis
+    parser.add_argument(
+        "--no-analysis",
+        action="store_true",
+        help="Skip generating analysis plots"
+    )
+    
+    parser.add_argument(
+        "--analysis-window",
+        type=int,
+        default=50,
+        help="Rolling window size for analysis plots"
+    )
+    
     return parser.parse_args()
 
 
@@ -107,7 +126,7 @@ def main():
     
     # Paths for saving
     q_path = os.path.join(run_dir, "q_table.npy")
-    plot_path = os.path.join(run_dir, "training_progress.png")
+    log_path = os.path.join(run_dir, "q_table_train_log.jsonl")
     eval_fixed_path = os.path.join(run_dir, "eval_fixed.json")
     eval_random_path = os.path.join(run_dir, "eval_random.json")
     
@@ -122,10 +141,11 @@ def main():
     print(f"Load from:     {args.load if args.load else 'None (fresh start)'}")
     print("=" * 70)
     
-    # Initialize controller
+    # Initialise controller
     ctrl = CustomController()
     ctrl.target_mode = args.mode
     ctrl.q_path = q_path
+    ctrl.log_path = log_path
     
     # Load existing Q-table if specified
     if args.load:
@@ -152,9 +172,22 @@ def main():
     ctrl.save()
     print(f"\n[Save] Q-table saved to {q_path}")
     
-    # Plot training curves
-    print(f"[Plot] Generating training curves...")
-    ctrl.plot_training_progress(out_path=plot_path)
+    # Generate analysis plots
+    if not args.no_analysis:
+        if os.path.exists(log_path):
+            print(f"\n[Analysis] Generating diagnostic plots from {log_path}...")
+            try:
+                analysis.run_analysis(
+                    log_path=Path(log_path), 
+                    out_dir=Path(run_dir), 
+                    window=args.analysis_window
+                )
+            except ImportError:
+                print("[Analysis] Warning: analysis.py not found, skipping plots")
+            except Exception as e:
+                print(f"[Analysis] Error generating plots: {e}")
+        else:
+            print(f"[Analysis] No log file found at {log_path}")
     
     # Evaluation
     if args.eval_after:
@@ -188,14 +221,60 @@ def main():
     print("\n" + "=" * 70)
     print("TRAINING COMPLETE!")
     print("=" * 70)
-    print(f"Results saved in: {run_dir}")
-    print(f"  - Q-table:     {os.path.basename(q_path)}")
-    print(f"  - Plot:        {os.path.basename(plot_path)}")
+    print(f"Results saved in: {run_dir}/")
+    print(f"  - Q-table:           q_table.npy")
+    print(f"  - Training log:      q_table_train_log.jsonl")
+    if not args.no_analysis and os.path.exists(log_path):
+        print(f"  - Plots:             *.png")
     if args.eval_after:
-        print(f"  - Eval fixed:  {os.path.basename(eval_fixed_path)}")
-        print(f"  - Eval random: {os.path.basename(eval_random_path)}")
+        print(f"  - Eval fixed:        eval_fixed.json")
+        print(f"  - Eval random:       eval_random.json")
     print("=" * 70)
 
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
