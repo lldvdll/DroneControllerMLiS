@@ -8,7 +8,8 @@ Features:
 - Resume training from checkpoints
 
 Usage:
-    python train.py --mode curriculum --episodes 10000 --eval-after
+    python3 train.py --mode curriculum --episodes 20000 --eval-after
+    python3 train.py --load runs/20260117_004246/q_table.npy --eval-after --episodes 0
 """
 
 import argparse
@@ -40,7 +41,7 @@ def parse_args():
     parser.add_argument(
         "--episodes", 
         type=int, 
-        default=1000,
+        default=5000,
         help="Number of training episodes"
     )
     
@@ -54,7 +55,7 @@ def parse_args():
     parser.add_argument(
         "--print-every", 
         type=int, 
-        default=10,
+        default=50,
         help="Print progress every N episodes"
     )
     

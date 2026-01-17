@@ -6,8 +6,8 @@ SARSA (on-policy) Drone Flight Controller
         near-boundary shaping penalty (smooth)
         danger flag in state if near boundary
     - Discrete state:
-        dx: 5 bins
-        dy: 5 bins
+        dx: 7 bins
+        dy: 7 bins
         vx, vy, theta, omega: 3 bins each
         danger: 0/1 flag
     - Actions: 6 macro-actions
@@ -68,7 +68,7 @@ class CustomController(FlightController):
         self.omega0 = 0.45      # for pitch_velocity
 
         # danger threshold: min distance to any wall
-        self.b0 = 0.25 
+        self.b0 = 0.25
 
         # State tracking
         self.last_state_tuple = None
@@ -76,12 +76,13 @@ class CustomController(FlightController):
 
         # Reward parameters
         self.R_hit = 500.0
-        self.k_progress = 20.0
+        self.k_progress = 50.0
         self.progress_clip = 0.05
         self.boundary_penalty = 80.0 # terminate penalty if out-of-bounds
-        self.near_boundary_penalty_scale = 2  # shaping weight near boundary
-        self.stagnate_penalty = 0
+        self.near_boundary_penalty_scale = 0.30  # shaping weight near boundary
         self.c_step = 0.002  
+        self.stagnate_penalty = 0
+        self.stagnate_limit = 800
 
         # Normalisation distance for progress shaping
         xmin, xmax, ymin, ymax = self.full_bounds
@@ -93,11 +94,10 @@ class CustomController(FlightController):
         self.gamma = 0.999 # gamma discount
         self.alpha = 0.10 # learning rate
         self.epsilon = 1.0 # exploration
-        self.epsilon_eval = 0.0 # no exploration during evaluation
-        self.action_repeat = 1
-        self.stagnate_limit = 300
         self.eps_decay = 0.999
         self.eps_min = 0.05
+        self.epsilon_eval = 0.0 # no exploration during evaluation
+        self.action_repeat_eval = 1
 
         # Q-table initialisation
         self.Q = np.zeros((self.n_states, self.n_actions), dtype=np.float32)
@@ -112,29 +112,35 @@ class CustomController(FlightController):
                 "max_steps": 2500,
                 "alpha": 0.1,
                 "eps_start": 1.0, # Start with full exploration
-                "eps_decay": 0.999,
+                "eps_decay": 0.9995,
                 "eps_min": 0.15,
                 "action_repeat": 1,
+                "stagnate_penalty": 0,  # Disabled - free exploration
+                "stagnate_limit": 9999,
             },
             {
                 "name": "Stage1-Medium",
-                "n": 4,
+                "n": 3,
                 "max_steps": 3000,
                 "alpha": 0.1,
-                "eps_start": 0.5,  # Start with moderate exploration
-                "eps_decay": 0.999,
+                "eps_start": 0.6,  # Start with moderate exploration
+                "eps_decay": 0.9995,
                 "eps_min": 0.1,
                 "action_repeat": 3,
+                "stagnate_penalty": 0,
+                "stagnate_limit": 1000,    
             },
             {
                 "name": "Stage2-Hard",
                 "n": 5,
                 "max_steps": self.max_steps,
                 "alpha": 0.10,
-                "eps_start": 0.3,
-                "eps_decay": 0.995,
+                "eps_start": 0.4,
+                "eps_decay": 0.999,
                 "eps_min": 0.05,
                 "action_repeat": 4,
+                "stagnate_penalty": 0,
+                "stagnate_limit": 800,     
             },
         ]
         self.stage_idx = 0
@@ -483,7 +489,8 @@ class CustomController(FlightController):
         "progress": 0.0,
         "step": 0.0,
         "near_boundary": 0.0,
-        "oob":0.0
+        "oob":0.0,
+        "stagnate":0.0
         }
         
         # Initialisation
@@ -521,7 +528,6 @@ class CustomController(FlightController):
     # ============================================================
     # Policy helpers
     # ============================================================
-
     def _argmax_tiebreak(self, q_row: np.ndarray) -> int: 
         """
         Argmax with random tie-breaking.
@@ -538,8 +544,6 @@ class CustomController(FlightController):
         else:
             # Exploit: Pick best action
             return self._argmax_tiebreak(self.Q[state_id])
-    
-    
     
     def get_thrusts(self, drone: Drone) -> Tuple[float, float]:
         """
@@ -621,6 +625,8 @@ class CustomController(FlightController):
         self.eps_decay = float(stage["eps_decay"])
         self.eps_min = float(stage["eps_min"])
         self.action_repeat = int(stage["action_repeat"])
+        self.stagnate_limit = int(stage["stagnate_limit"])
+        self.stagnate_penalty = float(stage["stagnate_penalty"])
         return stage
    
     # ============================================================
@@ -630,7 +636,7 @@ class CustomController(FlightController):
         with open(self.log_path, "a") as f:
             f.write(json.dumps(row) + "\n")
 
-    def train(self, num_episodes: int = 5000, save_every: int = 200, print_every: int = 10,) -> None:
+    def train(self, num_episodes: int = 5000, save_every: int = 200, print_every: int = 50,) -> None:
         
         for ep in range(num_episodes):
             r_sums = {
@@ -639,6 +645,7 @@ class CustomController(FlightController):
                 "step": 0.0,
                 "near_boundary": 0.0,
                 "oob": 0.0,
+                "stagnate": 0.0,
             }
             done_reason = ""
 
@@ -723,6 +730,7 @@ class CustomController(FlightController):
                     # Stagnation - not making progress
                     if (self.stagnate_penalty > 0) and (stagnate_count >= self.stagnate_limit):
                         accumulated_reward -= self.stagnate_penalty
+                        r_sums["stagnate"] -= self.stagnate_penalty
                         done_reason = "stagnate"
                         done = True
                         break
@@ -809,6 +817,7 @@ class CustomController(FlightController):
                     "r_step": r_sums["step"],
                     "r_near_boundary": r_sums["near_boundary"],
                     "r_oob": r_sums["oob"],
+                    "r_stagnate": r_sums["stagnate"],
                     "mean_return_per_step": total_return / max(1, steps_taken),
                 })
 

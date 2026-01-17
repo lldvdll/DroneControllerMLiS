@@ -159,65 +159,77 @@ def evaluate(
         sign_changes = 0
         
         # Episode simulation
-        for t in range(max_steps):
+        steps_taken = 0
+        rep = int(getattr(controller, "action_repeat_eval", 1))
+        rep = max(rep, 1)
+        
+        while steps_taken < max_steps:
             # Get action from controller
             thrusts = controller.get_thrusts(drone)
             
-            # Check thrust saturation
-            t1, t2 = thrusts
-            if (abs(t1) < 1e-9 or abs(t1 - 1.0) < 1e-9 or 
-                abs(t2) < 1e-9 or abs(t2 - 1.0) < 1e-9):
-                sat_count += 1
-            
-            # Apply action
-            drone.set_thrust(thrusts)
-            drone.step_simulation(dt)
-            
-            # Track path length
-            x, y = float(drone.x), float(drone.y)
-            travel += math.hypot(x - prev_x, y - prev_y)
-            prev_x, prev_y = x, y
-            
-            # Track stability
-            pitch_abs_trace.append(abs(float(drone.pitch)))
-            pitch_trace.append(float(drone.pitch))
-            omega = float(drone.pitch_velocity)
-            omega_trace.append(omega)
-            
-            # Track oscillations (sign changes in angular velocity)
-            if omega != 0.0 and prev_omega != 0.0:
-                if (omega > 0) != (prev_omega > 0):
-                    sign_changes += 1
-            prev_omega = omega
-            
-            # Check if target was hit
-            if drone.has_reached_target_last_update:
-                hit_step = t + 1
-                per_ep_ttt.append(hit_step - last_hit_step)
-                last_hit_step = hit_step
+            # Apply the same thrusts for rep simulator steps
+            for t in range(rep):
+                if steps_taken >= max_steps:
+                    break
                 
-                # Update straight-line distance
-                if seg_target is not None:
-                    tx, ty = seg_target
-                    sx, sy = seg_start
-                    straight += math.hypot(tx - sx, ty - sy)
+                # Check thrust saturation
+                t1, t2 = thrusts
+                if (abs(t1) < 1e-9 or abs(t1 - 1.0) < 1e-9 or 
+                    abs(t2) < 1e-9 or abs(t2 - 1.0) < 1e-9):
+                    sat_count += 1
+            
+                # Apply action
+                drone.set_thrust(thrusts)
+                drone.step_simulation(dt)
+                steps_taken += 1
+            
+                # Track path length
+                x, y = float(drone.x), float(drone.y)
+                travel += math.hypot(x - prev_x, y - prev_y)
+                prev_x, prev_y = x, y
                 
-                # Update segment for next target
-                seg_start = (float(drone.x), float(drone.y))
-                seg_target = drone.get_next_target()
+                # Track stability
+                pitch_abs_trace.append(abs(float(drone.pitch)))
+                pitch_trace.append(float(drone.pitch))
+                omega = float(drone.pitch_velocity)
+                omega_trace.append(omega)
+                
+                # Track oscillations (sign changes in angular velocity)
+                if omega != 0.0 and prev_omega != 0.0:
+                    if (omega > 0) != (prev_omega > 0):
+                        sign_changes += 1
+                prev_omega = omega
             
-            # Check terminal conditions
-            if _out_of_bounds(drone, bounds):
-                crashed = 1
-                done = True
-                break
+                # Check if target was hit
+                if drone.has_reached_target_last_update:
+                    hit_step = steps_taken
+                    per_ep_ttt.append(hit_step - last_hit_step)
+                    last_hit_step = hit_step
+                
+                    # Update straight-line distance
+                    if seg_target is not None:
+                        tx, ty = seg_target
+                        sx, sy = seg_start
+                        straight += math.hypot(tx - sx, ty - sy)
+                
+                    # Update segment for next target
+                    seg_start = (float(drone.x), float(drone.y))
+                    seg_target = drone.get_next_target()
             
-            if _all_targets_done(drone):
-                done = True
+                # Check terminal conditions
+                if _out_of_bounds(drone, bounds):
+                    crashed = 1
+                    done = True
+                    break
+            
+                if _all_targets_done(drone):
+                    done = True
+                    break
+            
+            if done:
                 break
         
         # Episode statistics
-        steps_taken = t + 1
         ep_steps.append(steps_taken)
         crashes.append(crashed)
         
@@ -268,6 +280,7 @@ def evaluate(
             "bounds": bounds,
             "dt": dt,
             "max_steps": max_steps,
+            "action_repeat": int(getattr(controller, "action_repeat_eval", 1)),
         },
         "core": {
             "success_rate": float(np.mean(success_flags)) if success_flags else float("nan"),

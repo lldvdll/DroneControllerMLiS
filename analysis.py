@@ -1,333 +1,399 @@
-# ============================================================
-# Training Analysis & Plotting
-# ============================================================
+"""
+Reads JSONL produced during training and generates diagnostic plots.
+
+Expected JSONL keys:
+  ep, stage, hits, crash, return, steps,
+  epsilon, alpha,
+  r_hit, r_progress, r_step, r_near_boundary, r_oob,r_stagnate
+  done_reason ("crash"/"max_steps"/"success"/etc.)
+"""
+from __future__ import annotations
+
 import json
-import pandas as pd
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
+
 import numpy as np
 import matplotlib.pyplot as plt
-from pathlib import Path
 
 
-def load_jsonl(path):
-    """Load JSONL log file into DataFrame"""
-    records = []
-    with open(path, "r") as f:
+# ----------------------------
+# IO
+# ----------------------------
+def _load_jsonl(path: Path) -> List[Dict[str, Any]]:
+    if not path.exists():
+        print(f"[analysis] No log file found at: {path}")
+        return []
+    rows: List[Dict[str, Any]] = []
+    with path.open("r") as f:
         for line in f:
             line = line.strip()
-            if line:
-                records.append(json.loads(line))
-    return pd.DataFrame(records)
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return rows
 
 
-def rolling_mean(x, w):
-    return pd.Series(x).rolling(w, min_periods=1).mean()
+def _to_cols(rows: List[Dict[str, Any]]) -> Dict[str, np.ndarray]:
+    if not rows:
+        return {}
+
+    keys = set()
+    for r in rows:
+        keys.update(r.keys())
+
+    cols: Dict[str, List[Any]] = {k: [] for k in keys}
+    for r in rows:
+        for k in keys:
+            cols[k].append(r.get(k, np.nan))
+
+    out: Dict[str, np.ndarray] = {}
+    for k, v in cols.items():
+        if any(isinstance(x, str) for x in v if x is not np.nan):
+            out[k] = np.array(v, dtype=object)
+        else:
+            tmp = []
+            for x in v:
+                if x is None:
+                    tmp.append(np.nan)
+                elif isinstance(x, (int, float)):
+                    tmp.append(float(x))
+                else:
+                    tmp.append(np.nan)
+            out[k] = np.array(tmp, dtype=float)
+    return out
 
 
-def rolling_std(x, w):
-    return pd.Series(x).rolling(w, min_periods=1).std()
+# ----------------------------
+# Rolling helpers (no pandas)
+# ----------------------------
+def _rolling_mean(x: np.ndarray, w: int) -> np.ndarray:
+    x = np.asarray(x, dtype=float)
+    if w <= 1:
+        return x.copy()
+    if x.size < w:
+        return np.array([], dtype=float)
+    k = np.ones(w, dtype=float) / float(w)
+    return np.convolve(x, k, mode="valid")
 
 
-def plot_return_and_hits(df, window=50, out_path=None) -> bool:
-    """Plot rolling mean of returns and hits. Returns True if plot was created."""
-    if "return" not in df.columns or "hits" not in df.columns:
-        print("[Analysis] Warning: Missing 'return' or 'hits' column, skipping")
-        return False
-    
-    fig, ax1 = plt.subplots(figsize=(12, 4))
+def _rolling_std(x: np.ndarray, w: int) -> np.ndarray:
+    x = np.asarray(x, dtype=float)
+    if w <= 1:
+        return np.zeros_like(x)
+    if x.size < w:
+        return np.array([], dtype=float)
+    k = np.ones(w, dtype=float) / float(w)
+    mu = np.convolve(x, k, mode="valid")
+    mu2 = np.convolve(x * x, k, mode="valid")
+    var = np.maximum(mu2 - mu * mu, 0.0)
+    return np.sqrt(var)
 
-    r_mean = rolling_mean(df["return"], window)
-    r_std = rolling_std(df["return"], window)
 
-    x = df["ep"].values if "ep" in df.columns else np.arange(len(df))
+def _rolling_mean_std(x: np.ndarray, w: int) -> Tuple[np.ndarray, np.ndarray]:
+    return _rolling_mean(x, w), _rolling_std(x, w)
 
-    ax1.plot(x, r_mean, label="Return (mean)", color="blue")
-    ax1.fill_between(x, r_mean - r_std, r_mean + r_std, alpha=0.3, color="blue")
-    ax1.set_ylabel("Return", color="blue")
+
+def _x_for_valid(n_valid: int, window: int) -> np.ndarray:
+    return np.arange(n_valid) + max(int(window), 1)
+
+
+def _stage_change_points(stage: np.ndarray) -> List[int]:
+    if stage.size == 0:
+        return []
+    s = np.asarray(stage, dtype=float)
+    if np.all(np.isnan(s)):
+        return []
+
+    # forward fill NaNs
+    s2 = s.copy()
+    last = np.nan
+    for i in range(len(s2)):
+        if np.isnan(s2[i]):
+            s2[i] = last
+        else:
+            last = s2[i]
+
+    if np.isnan(s2[0]):
+        first_valid = np.where(~np.isnan(s2))[0]
+        if first_valid.size == 0:
+            return []
+        s2[:first_valid[0]] = s2[first_valid[0]]
+
+    return (np.where(np.diff(s2) != 0)[0] + 1).tolist()
+
+
+def _add_stage_lines(ax, stage: np.ndarray) -> None:
+    for cp in _stage_change_points(stage):
+        ax.axvline(cp, ls="--", alpha=0.25, color="0.4")
+
+
+# ----------------------------
+# Plots
+# ----------------------------
+def _plot_return_hits(cols: Dict[str, np.ndarray], out_path: Path, window: int) -> None:
+    ret = cols.get("return")
+    hits = cols.get("hits")
+    stage = cols.get("stage", np.array([]))
+
+    if ret is None or hits is None:
+        return
+
+    ret_m, ret_s = _rolling_mean_std(ret, window)
+    hit_m, _ = _rolling_mean_std(hits, window)
+    if ret_m.size == 0:
+        return
+
+    x = _x_for_valid(ret_m.size, window)
+
+    fig, ax1 = plt.subplots(figsize=(14, 5))
+
+    # Return: blue (C0)
+    ax1.plot(x, ret_m, color="C0", label="Return (mean)")
+    ax1.fill_between(x, ret_m - ret_s, ret_m + ret_s, color="C0", alpha=0.20, label="Return ±1σ")
     ax1.set_xlabel("Episode")
-    ax1.tick_params(axis="y", labelcolor="blue")
-    ax1.grid(alpha=0.3)
+    ax1.set_ylabel("Return")
+    ax1.grid(alpha=0.25)
 
+    # Hits: green (C2) on twin axis
     ax2 = ax1.twinx()
-    ax2.plot(x, rolling_mean(df["hits"], window), color="green", label="Hits")
-    ax2.set_ylabel("Hits", color="green")
-    ax2.tick_params(axis="y", labelcolor="green")
+    ax2.plot(x, hit_m, color="C2", label="Hits (mean)")
+    ax2.set_ylabel("Hits")
 
-    # Combined legend
-    lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
+    # combined legend
+    lines = ax1.get_lines() + ax2.get_lines()
+    labels = [l.get_label() for l in lines]
+    ax1.legend(lines, labels, loc="upper left")
 
-    plt.title(f"Training Progress: Return & Hits (window={window})")
+    if stage.size:
+        _add_stage_lines(ax1, stage)
+
+    ax1.set_title(f"Return & Hits (rolling window={window})")
     plt.tight_layout()
-    
-    if out_path:
-        plt.savefig(out_path, dpi=150, bbox_inches="tight")
-        plt.close()
-    else:
-        plt.show()
-    
-    return True
+    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
 
-def plot_reward_decomposition(df, window=50, out_path=None) -> bool:
-    """Plot reward component breakdown. Returns True if plot was created."""
-    components = ["r_hit", "r_progress", "r_step", "r_near_boundary", "r_oob"]
-    colors = ["green", "blue", "gray", "orange", "red"]
-    
-    # Only plot columns that exist
-    available = [(c, col) for c, col in zip(colors, components) if col in df.columns]
-    
-    if not available:
-        print("[Analysis] Warning: No reward components found in log, skipping reward decomposition")
-        return False
-    
-    fig, ax = plt.subplots(figsize=(12, 4))
-    
-    x = df["ep"].values if "ep" in df.columns else np.arange(len(df))
+def _plot_crash_steps(cols: Dict[str, np.ndarray], out_path: Path, window: int) -> None:
+    crash = cols.get("crash", np.array([]))
+    steps = cols.get("steps", np.array([]))
+    stage = cols.get("stage", np.array([]))
 
-    for color, col in available:
-        ax.plot(x, rolling_mean(df[col], window), label=col.replace("r_", ""), color=color)
+    if crash.size == 0 and steps.size == 0:
+        return
 
-    ax.axhline(0, color="black", lw=0.8, linestyle="--")
-    ax.set_ylabel("Reward contribution (per episode)")
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
+
+    if crash.size:
+        c = _rolling_mean(crash, window)
+        if c.size:
+            x = _x_for_valid(c.size, window)
+            axes[0].plot(x, c)
+            axes[0].set_title(f"Crash rate (rolling={window})")
+            axes[0].set_ylabel("Crash fraction")
+            axes[0].set_xlabel("Episode")
+            axes[0].grid(alpha=0.3)
+            if stage.size:
+                _add_stage_lines(axes[0], stage)
+
+    if steps.size:
+        s = _rolling_mean(steps, window)
+        if s.size:
+            x = _x_for_valid(s.size, window)
+            axes[1].plot(x, s)
+            axes[1].set_title(f"Steps (rolling={window})")
+            axes[1].set_ylabel("Steps")
+            axes[1].set_xlabel("Episode")
+            axes[1].grid(alpha=0.3)
+            if stage.size:
+                _add_stage_lines(axes[1], stage)
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
+def _plot_done_reason_over_time(cols: Dict[str, np.ndarray], out_path: Path, window: int) -> None:
+    reason = cols.get("done_reason", np.array([]))
+    stage = cols.get("stage", np.array([]))
+
+    if reason.size == 0:
+        return
+
+    cats = ["crash", "max_steps", "success", "stagnate", "other"]
+    onehot = {c: np.zeros(reason.size, dtype=float) for c in cats}
+
+    for i, r in enumerate(reason):
+        if not isinstance(r, str):
+            onehot["other"][i] = 1.0
+            continue
+        rlow = r.lower()
+        if "crash" in rlow or "oob" in rlow:
+            onehot["crash"][i] = 1.0
+        elif "max" in rlow:
+            onehot["max_steps"][i] = 1.0
+        elif "success" in rlow or "all_targets" in rlow:
+            onehot["success"][i] = 1.0
+        elif "stagn" in rlow:
+            onehot["stagnate"][i] = 1.0
+        else:
+            onehot["other"][i] = 1.0
+
+    fig, ax = plt.subplots(figsize=(14, 5))
+    for c in cats:
+        y = _rolling_mean(onehot[c], window)
+        if y.size == 0:
+            continue
+        x = _x_for_valid(y.size, window)
+        ax.plot(x, y, label=c)
+
+    ax.set_title(f"Done reason (rolling fraction, window={window})")
     ax.set_xlabel("Episode")
-    ax.legend()
+    ax.set_ylabel("Fraction")
     ax.grid(alpha=0.3)
+    ax.legend(loc="upper right", ncol=3)
+    if stage.size:
+        _add_stage_lines(ax, stage)
 
-    plt.title(f"Reward Decomposition (window={window})")
     plt.tight_layout()
-    
-    if out_path:
-        plt.savefig(out_path, dpi=150, bbox_inches="tight")
-        plt.close()
-    else:
-        plt.show()
-    
-    return True
+    plt.savefig(out_path, dpi=150)
+    plt.close(fig)
 
 
-def plot_done_reason(df, out_path=None) -> bool:
-    """Plot distribution of episode termination reasons. Returns True if plot was created."""
-    if "done_reason" not in df.columns:
-        print("[Analysis] Warning: 'done_reason' column not found, skipping")
-        return False
-    
-    counts = df["done_reason"].value_counts(normalize=True)
-    
-    if len(counts) == 0:
-        print("[Analysis] Warning: No done_reason data, skipping")
-        return False
+def _plot_return_vs_hits_box(cols: Dict[str, np.ndarray], out_path: Path) -> None:
+    ret = cols.get("return", np.array([]))
+    hits = cols.get("hits", np.array([]))
+    if ret.size == 0 or hits.size == 0:
+        return
 
-    plt.figure(figsize=(8, 5))
-    # Use default colormap instead of fixed color list
-    bars = counts.plot(kind="bar", colormap="tab10")
-    
-    # Add percentage labels
-    for i, (idx, val) in enumerate(counts.items()):
-        plt.text(i, val + 0.01, f"{val*100:.1f}%", ha="center", fontsize=10)
-    
-    plt.ylabel("Fraction of episodes")
-    plt.xlabel("Termination Reason")
-    plt.title("Episode Termination Reasons")
-    plt.grid(axis="y", alpha=0.3)
-    plt.xticks(rotation=45, ha="right")
+    hit_int = np.asarray(np.round(hits), dtype=int)
+    uniq = np.unique(hit_int)
+    data = [ret[hit_int == h] for h in uniq]
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.boxplot(data, labels=[str(h) for h in uniq], showfliers=False)
+    ax.set_title("Return distribution by Hits (boxplot)")
+    ax.set_xlabel("Hits")
+    ax.set_ylabel("Return")
+    ax.grid(alpha=0.3)
     plt.tight_layout()
-    
-    if out_path:
-        plt.savefig(out_path, dpi=150, bbox_inches="tight")
-        plt.close()
-    else:
-        plt.show()
-    
-    return True
+    plt.savefig(out_path, dpi=150)
+    plt.close(fig)
 
 
-def plot_return_vs_hits(df, out_path=None) -> bool:
-    """Sanity check: scatter plot of return vs hits. Returns True if plot was created."""
-    if "hits" not in df.columns or "return" not in df.columns:
-        print("[Analysis] Warning: Missing hits or return column, skipping scatter plot")
-        return False
-    
-    plt.figure(figsize=(6, 5))
-    plt.scatter(df["hits"], df["return"], alpha=0.3, s=10)
-    plt.xlabel("Hits")
-    plt.ylabel("Return")
-    plt.title("Return vs Hits (Reward Sanity Check)")
-    plt.grid(alpha=0.3)
+def _plot_reward_share_100pct(cols: Dict[str, np.ndarray], out_path: Path, block: int) -> None:
+    # only if r_* exists
+    needed = ["r_hit", "r_progress", "r_step", "r_near_boundary", "r_oob", "r_stagnate"]
+    present = [k for k in needed if k in cols]
+    if not present:
+        print("[analysis] No r_* columns found; skip reward share plot")
+        return
+
+    labels = [k.replace("r_", "") for k in present]
+    arrs = [np.abs(cols[k]).astype(float) for k in present]
+    n = min(len(a) for a in arrs)
+    if n < block * 2:
+        print("[analysis] Not enough episodes for reward share plot")
+        return
+
+    m = n // block
+    binned = np.vstack([a[:m * block].reshape(m, block).mean(axis=1) for a in arrs])
+    total = binned.sum(axis=0) + 1e-12
+    frac = binned / total
+
+    x = (np.arange(m) + 1) * block
+    fig, ax = plt.subplots(figsize=(14, 5))
+    bottom = np.zeros(m)
+
+    for i, lab in enumerate(labels):
+        ax.bar(x, frac[i], bottom=bottom, width=block * 0.9, label=lab)
+        bottom += frac[i]
+
+    ax.set_ylim(0, 1.0)
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Share of |total reward|")
+    ax.set_title(f"Reward component share (100% stacked bars, block={block})")
+    ax.grid(alpha=0.25, axis="y")
+    ax.legend(loc="upper left", ncol=min(len(labels), 5))
+
+    stage = cols.get("stage", np.array([]))
+    if stage.size:
+        _add_stage_lines(ax, stage)
+
     plt.tight_layout()
-    
-    if out_path:
-        plt.savefig(out_path, dpi=150, bbox_inches="tight")
-        plt.close()
-    else:
-        plt.show()
-    
-    return True
+    plt.savefig(out_path, dpi=150)
+    plt.close(fig)
 
 
-def plot_crash_and_steps(df, window=50, out_path=None) -> bool:
-    """Plot crash rate and steps per episode. Returns True if plot was created."""
-    has_crash = "crash" in df.columns
-    has_steps = "steps" in df.columns
-    
-    # Skip entirely if both columns missing
-    if not has_crash and not has_steps:
-        print("[Analysis] Warning: Missing both 'crash' and 'steps' columns, skipping")
-        return False
-    
-    fig, axes = plt.subplots(1, 2, figsize=(14, 4))
-    
-    x = df["ep"].values if "ep" in df.columns else np.arange(len(df))
-    
-    # Crash rate
-    ax1 = axes[0]
-    if has_crash:
-        ax1.plot(x, rolling_mean(df["crash"], window), color="red")
-        ax1.set_ylabel("Crash Rate")
-        ax1.set_xlabel("Episode")
-        ax1.set_title(f"Crash Rate (window={window})")
-        ax1.grid(alpha=0.3)
-        ax1.set_ylim(-0.05, 1.05)
-    else:
-        ax1.text(0.5, 0.5, "crash column missing", ha="center", va="center", 
-                 transform=ax1.transAxes, fontsize=12, color="gray")
-        ax1.set_title("Crash Rate (missing)")
-    
-    # Steps
-    ax2 = axes[1]
-    if has_steps:
-        ax2.plot(x, rolling_mean(df["steps"], window), color="orange")
-        ax2.set_ylabel("Steps")
-        ax2.set_xlabel("Episode")
-        ax2.set_title(f"Steps per Episode (window={window})")
-        ax2.grid(alpha=0.3)
-    else:
-        ax2.text(0.5, 0.5, "steps column missing", ha="center", va="center",
-                 transform=ax2.transAxes, fontsize=12, color="gray")
-        ax2.set_title("Steps per Episode (missing)")
-    
+def _plot_reward_zscore(cols: Dict[str, np.ndarray], out_path: Path, window: int) -> None:
+    candidates = [("hit", "r_hit"), ("progress", "r_progress"), ("step", "r_step"),
+                  ("near_boundary", "r_near_boundary"), ("oob", "r_oob")]
+    avail = [(lab, k) for lab, k in candidates if k in cols]
+    if not avail:
+        return
+
+    fig, ax = plt.subplots(figsize=(14, 6))
+
+    for lab, k in avail:
+        x = cols[k].astype(float)
+        mu = np.nanmean(x)
+        sd = np.nanstd(x) + 1e-9
+        z = (x - mu) / sd
+        z_m = _rolling_mean(z, window)
+        if z_m.size == 0:
+            continue
+        t = _x_for_valid(z_m.size, window)
+        ax.plot(t, z_m, label=lab)
+
+    ax.axhline(0.0, ls="--", alpha=0.5)
+    ax.set_title(f"Reward z-score (rolling mean, window={window})   z=(x-mean)/std within each component")
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Z-score")
+    ax.grid(alpha=0.3)
+    ax.legend(loc="upper left", ncol=3)
+
+    stage = cols.get("stage", np.array([]))
+    if stage.size:
+        _add_stage_lines(ax, stage)
+
     plt.tight_layout()
-    
-    if out_path:
-        plt.savefig(out_path, dpi=150, bbox_inches="tight")
-        plt.close()
-    else:
-        plt.show()
-    
-    return True
+    plt.savefig(out_path, dpi=150)
+    plt.close(fig)
 
 
-def print_summary(df):
-    """Print training summary statistics"""
-    print("\n" + "=" * 50)
-    print("TRAINING SUMMARY")
-    print("=" * 50)
-    print(f"Episodes logged: {len(df)}")
-    
-    if "return" in df.columns:
-        print(f"\nReturns:")
-        print(f"  Mean: {df['return'].mean():.2f}")
-        print(f"  Std:  {df['return'].std():.2f}")
-        print(f"  Min:  {df['return'].min():.2f}")
-        print(f"  Max:  {df['return'].max():.2f}")
-        if len(df) > 100:
-            print(f"  Last 100 mean: {df['return'].iloc[-100:].mean():.2f}")
-    
-    if "hits" in df.columns:
-        print(f"\nHits:")
-        print(f"  Mean: {df['hits'].mean():.2f}")
-        print(f"  Max:  {df['hits'].max()}")
-        if len(df) > 100:
-            print(f"  Last 100 mean: {df['hits'].iloc[-100:].mean():.2f}")
-    
-    if "crash" in df.columns:
-        print(f"\nCrash rate: {df['crash'].mean()*100:.1f}%")
-        if len(df) > 100:
-            print(f"  Last 100: {df['crash'].iloc[-100:].mean()*100:.1f}%")
-    
-    if "done_reason" in df.columns:
-        print(f"\nTermination reasons:")
-        for reason, count in df["done_reason"].value_counts().items():
-            print(f"  {reason}: {count} ({count/len(df)*100:.1f}%)")
-    
-    print("=" * 50)
+# ============================================================
+# Public API (called from train.py)
+# ============================================================
 
-
-def run_analysis(log_path: Path, out_dir: Path, window: int = 50):
+def run_analysis(
+    log_path: Path,
+    out_dir: Path,
+    window: int = 50,
+    share_block: int = 100,
+) -> None:
     """
-    Main analysis function called by train.py
-    
-    Args:
-        log_path: Path to JSONL training log
-        out_dir: Directory to save plots
-        window: Rolling window size for smoothing
+    Called from train.py after training.
+    Saves plots into out_dir (or out_dir/plots if you prefer; here: out_dir directly).
     """
+    log_path = Path(log_path)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load data
-    try:
-        df = load_jsonl(log_path)
-    except Exception as e:
-        print(f"[Analysis] Error loading log: {e}")
+    rows = _load_jsonl(log_path)
+    if not rows:
+        print("[analysis] No rows loaded; no plots generated.")
         return
-    
-    if len(df) == 0:
-        print("[Analysis] Warning: Log file is empty, skipping analysis")
-        return
-    
-    print(f"[Analysis] Loaded {len(df)} episodes from {log_path}")
-    
-    # Print summary
-    print_summary(df)
 
-    # Generate plots
-    print(f"[Analysis] Generating plots...")
-    plots_created = []
-    
-    # 1. Return and hits
-    if plot_return_and_hits(df, window, out_path=out_dir / "rolling_mean_return_hits.png"):
-        plots_created.append("rolling_mean_return_hits.png")
+    cols = _to_cols(rows)
 
-    # 2. Reward decomposition
-    if plot_reward_decomposition(df, window, out_path=out_dir / "reward_decomposition.png"):
-        plots_created.append("reward_decomposition.png")
+    _plot_return_hits(cols, out_dir / "rolling_mean_return_hits.png", window)
+    _plot_crash_steps(cols, out_dir / "crash_and_steps.png", window)
+    _plot_done_reason_over_time(cols, out_dir / "done_reason_over_time.png", window)
+    _plot_return_vs_hits_box(cols, out_dir / "return_vs_hits_box.png")
+    _plot_reward_share_100pct(cols, out_dir / f"reward_decomp_share_100_block{share_block}.png", share_block)
+    _plot_reward_zscore(cols, out_dir / "reward_decomp_zscore.png", window)
 
-    # 3. Done reasons
-    if plot_done_reason(df, out_path=out_dir / "done_reason.png"):
-        plots_created.append("done_reason.png")
-
-    # 4. Return vs hits
-    if plot_return_vs_hits(df, out_path=out_dir / "return_vs_hits.png"):
-        plots_created.append("return_vs_hits.png")
-    
-    # 5. Crash and steps
-    if plot_crash_and_steps(df, window, out_path=out_dir / "crash_and_steps.png"):
-        plots_created.append("crash_and_steps.png")
-
-    # Print created plots
-    for plot_name in plots_created:
-        print(f"  - {plot_name}")
-    
-    print(f"[Analysis] Complete! {len(plots_created)} plots saved to {out_dir}")
-
-
-# ============================================================
-# CLI Entry Point
-# ============================================================
-if __name__ == "__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Analyze SARSA training logs")
-    parser.add_argument("log_path", type=str, help="Path to JSONL log file")
-    parser.add_argument("--out-dir", type=str, default=None,
-                        help="Output directory (default: same as log file)")
-    parser.add_argument("--window", type=int, default=50,
-                        help="Rolling window size")
-    
-    args = parser.parse_args()
-    
-    log_path = Path(args.log_path)
-    out_dir = Path(args.out_dir) if args.out_dir else log_path.parent
-    
-    run_analysis(log_path, out_dir, window=args.window)
+    print(f"[analysis] Saved plots to: {out_dir.resolve()}")
