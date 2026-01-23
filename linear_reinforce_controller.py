@@ -67,10 +67,21 @@ class ExperimentLogger:
         print(f"Plots saved to {self.filepath}.png")
 
 class Policy():
-    def __init__(self, input_size, output_size):
-        # Initialize weights with random values
-        self.weights = np.random.randn(input_size, output_size)
-        print(f"Initial Weights: {self.weights}")
+    def __init__(self, input_size, output_size, init_mode='random'):
+        print(f"Weight Initialisation Mode: {init_mode}")
+        self.weights = np.random.randn(input_size, output_size)  # Initialize weights with random values
+        self.weights /= np.linalg.norm(self.weights, axis=0)  # Normalise the weights so they start near 0
+        if init_mode == 'random':
+            pass
+        # Initialise weights to prefer hovering
+        elif init_mode == 'hover':
+            self.weights /= 5  # Normalise more so they're tight around 0
+            self.weights[-1, 1] += 1.  # bias term for thrust set to counter gravity
+        
+        # Print weights formatting to 3 decimal places
+        with np.printoptions(suppress=True, precision=3):
+            print(f"Initial Weights: {self.weights}")
+        
     
     def forward(self, state):
         return state @ self.weights  # Linear model
@@ -119,7 +130,7 @@ class LinearReinforceController(FlightController):
             self.config = json.load(f)
         
         # Initialise policy - 7 states in, 2 actions out
-        self.policy = Policy(7, 2)
+        self.policy = Policy(7, 2, init_mode=self.config['hyperparameters']['weight_init_mode'])
         
         # Initialise logger
         self.logger = ExperimentLogger(self.config['experiment_name'])
@@ -253,6 +264,12 @@ class LinearReinforceController(FlightController):
         rewards = []
         drone = self.init_drone()
         
+        # Iniitalise previous distance at the start of each episode. 
+        # Otherwise it carries over unpredictably into rewards
+        target = drone.get_next_target()
+        self.prev_dist = np.linalg.norm([target[0] - drone.x, target[1] - drone.y])
+        
+        # Step through episode
         for step in range(self.config['hyperparameters']['max_steps']):
             
             # Get states and actions
