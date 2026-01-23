@@ -267,7 +267,7 @@ class LinearReinforceController(FlightController):
         states = []
         actions = []
         rewards = []
-        drone = self.init_drone()
+        drone = self.init_drone(mode='random')
         
         # Iniitalise previous distance at the start of each episode. 
         # Otherwise it carries over unpredictably into rewards
