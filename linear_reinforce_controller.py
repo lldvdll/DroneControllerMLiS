@@ -219,7 +219,8 @@ class LinearReinforceController(FlightController):
             if self.prev_dist is None:
                 pass  # Just do nothing on the first step
             else:
-                delta_dist = 1.0 if self.prev_dist - dist > 0.0 else -1.0
+                delta_dist = self.prev_dist - dist  # Continuous change
+                delta_bin = 1.0 if delta_dist > 0.0 else -1.0  # Binary change
                 reward += (delta_dist * cfg['delta_distance']) 
             self.prev_dist = dist  # Update the stored distance
          
