@@ -19,20 +19,18 @@ class ExperimentLogger:
     """
     def __init__(self, experiment_name):
         self.episode_rewards = []
-        self.episode_returns = []
         self.gradient_norms = []
         self.filepath = os.path.join(BASE_PATH, f"{experiment_name}_training_log")
 
-    def log_episode(self, episode_reward, initial_return, grad_norm):
+    def log_episode(self, episode_reward, grad_norm):
         self.episode_rewards.append(episode_reward)
-        self.episode_returns.append(initial_return)
         self.gradient_norms.append(grad_norm)
 
     def generate_plots(self):
         fig, axs = plt.subplots(2, 1, figsize=(8, 8))
         
         # Plot 1: Raw Rewards
-        axs[0].plot(self.episode_rewards, label='Total Reward', color='blue', alpha=0.6)
+        axs[0].plot(self.episode_rewards, label='Average Reward', color='blue', alpha=0.6)
         
         # Moving Average
         lag = 20
@@ -42,16 +40,10 @@ class ExperimentLogger:
             # Align x-axis
             axs[0].plot(range(lag-1, len(self.episode_rewards)), avg, color='red', label='20-Ep Avg')
             
-        axs[0].set_title('Episode Rewards')
-        axs[0].set_xlabel('Episode')
+        axs[0].set_title('Average Episode Rewards')
+        axs[0].set_xlabel('Batch')
         axs[0].legend()
         axs[0].grid(True)
-
-        # # Plot 2: Discounted Returns
-        # axs[1].plot(self.episode_returns, label='G_0', color='green', alpha=0.6)
-        # axs[1].set_title('Discounted Returns (G_0)')
-        # axs[1].set_xlabel('Episode')
-        # axs[1].grid(True)
 
         # Plot 3: Gradients
         if self.gradient_norms:
@@ -239,7 +231,7 @@ class LinearReinforceController(FlightController):
             
         return reward
     
-    def get_returns(self, rewards):
+    def get_returns(self, rewards, normalise=True):
         """
         Monty Carlo returns
             Reverse discounted sum
@@ -256,6 +248,15 @@ class LinearReinforceController(FlightController):
             returns.insert(0, G)
         
         # Normalization 
+        if normalise:
+            returns = self.normalise_returns(returns)
+            
+        return returns
+    
+    def normalise_returns(self, returns):
+        """
+        Seperate function for returns normalisation for batch processing
+        """
         returns = np.array(returns)
         baseline_mode = self.config['hyperparameters']['baseline_mode']
         if baseline_mode == 'zero':
@@ -263,8 +264,9 @@ class LinearReinforceController(FlightController):
         elif baseline_mode == 'mean':
             baseline = returns.mean()
         returns = (returns - baseline) / (returns.std() + 1e-8)
-            
+        
         return returns
+    
     
     def run_episode(self):
             
@@ -319,29 +321,45 @@ class LinearReinforceController(FlightController):
             # Run episode
             states, actions, rewards = self.run_episode()
             
-            # Log
-            total_reward = sum(rewards)
-            if episode % 10 == 0:
-                print(f"Episode {episode}: Total Reward: {total_reward:.2f}")
                 
             # Save weights periodically, incase it craps out
             if episode % 100 == 0:
                 self.save()
                 
-            # Calculate returns
-            returns = self.get_returns(rewards)
+            # Calculate returns - espisodic returns for discounting, will normalise over batch
+            returns = self.get_returns(rewards, normalise=False)
             
-            # Update policy
-            grad_norm = self.policy.backward(
-                states, 
-                actions, 
-                returns, 
-                self.config['hyperparameters']['sigma'], 
-                self.config['hyperparameters']['learning_rate']
-            )
+            # Batch updates
+            batch_size = self.config['hyperparameters']['batch_size']
+            if episode % batch_size == 0:  # Start a new batch
+                batch_states = states
+                batch_actions = actions
+                batch_all_returns = returns
+                
+            else:  # Continue batch - note also accumulates at end of batch
+                batch_states.extend(states)
+                batch_actions.extend(actions)
+                batch_all_returns.extend(returns)
+                
+            if (episode + 1) % batch_size == 0:  # End of batch
+                
+                # Normalise returns and update policy
+                returns_norm = self.normalise_returns(batch_all_returns)
+                grad_norm = self.policy.backward(  
+                    batch_states, 
+                    batch_actions, 
+                    returns_norm, 
+                    self.config['hyperparameters']['sigma'], 
+                    self.config['hyperparameters']['learning_rate']
+                )
+                
+                # Log for batch
+                average_reward = np.mean(rewards)
+                print(f"Episode {episode}: Average Reward: {average_reward:.2f}")
+
             
-            # Update logger
-            self.logger.log_episode(total_reward, returns[0], grad_norm)
+                # Update logger
+                self.logger.log_episode(average_reward, grad_norm)
                 
         # Save final weights
         self.save()
