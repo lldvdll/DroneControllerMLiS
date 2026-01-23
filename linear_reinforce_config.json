@@ -1,14 +1,17 @@
 {
-  "experiment_name": "001_test",
+  "experiment_name": "dummy",
   "hyperparameters": {
-    "gamma": 0.99, 
-    "sigma": 0.1,  
-    "learning_rate": 0.0005,
-    "n_episodes": 500,
-    "max_steps": 1000
+    "gamma": 0.95, 
+    "sigma": 0.2,  
+    "learning_rate": 0.005,
+    "n_episodes": 1000,
+    "max_steps": 200,
+    "baseline": "zero",
+    "batch_size": 10
   },
   "rewards": {
     "hit_bonus": 100.0,
-    "distance_weight": 0.1
+    "distance_weight": null,
+    "delta_distance": 1.0
   }
 }

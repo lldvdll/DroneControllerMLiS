@@ -29,7 +29,7 @@ class ExperimentLogger:
         self.gradient_norms.append(grad_norm)
 
     def generate_plots(self):
-        fig, axs = plt.subplots(2, 1, figsize=(10, 10))
+        fig, axs = plt.subplots(2, 1, figsize=(8, 8))
         
         # Plot 1: Raw Rewards
         axs[0].plot(self.episode_rewards, label='Total Reward', color='blue', alpha=0.6)
@@ -123,6 +123,10 @@ class LinearReinforceController(FlightController):
         
         # Initialise logger
         self.logger = ExperimentLogger(self.config['experiment_name'])
+        
+        # Store previous distance for delta distance reward
+        self.prev_dist = None
+        
 
     def get_state(self, drone: Drone):
         """
@@ -196,14 +200,27 @@ class LinearReinforceController(FlightController):
         cfg = self.config['rewards']
         reward = 0.0
         
-        # Distance Penalty
+        # Calculate distance to target
         target = drone.get_next_target()
         dist = np.linalg.norm([target[0] - drone.x, target[1] - drone.y])
-        reward -= dist * cfg['distance_weight']
+        
+        # Delta distance - simple +/-x based on moving toward or away from target
+        if cfg['delta_distance'] is not None:
+            if self.prev_dist is None:
+                pass  # Just do nothing on the first step
+            else:
+                delta_dist = 1.0 if self.prev_dist - dist > 0.0 else -1.0
+                reward += (delta_dist * cfg['delta_distance']) 
+            self.prev_dist = dist  # Update the stored distance
+         
+        # Distance Penalty
+        if cfg['distance_weight'] is not None:
+            reward -= dist * cfg['distance_weight']
         
         # Hit Bonus
-        if drone.has_reached_target_last_update:
-            reward += cfg['hit_bonus']
+        if cfg['hit_bonus'] is not None:
+            if drone.has_reached_target_last_update:
+                reward += cfg['hit_bonus']
             
         return reward
     
