@@ -75,7 +75,7 @@ class Policy():
             pass
         # Initialise weights to prefer hovering
         elif init_mode == 'hover':
-            self.weights /= 5  # Normalise more so they're tight around 0
+            self.weights /= 10  # Normalise more so they're tight around 0
             self.weights[-1, 1] += 1.  # bias term for thrust set to counter gravity
         
         # Print weights formatting to 3 decimal places
@@ -253,7 +253,12 @@ class LinearReinforceController(FlightController):
         
         # Normalization 
         returns = np.array(returns)
-        returns = (returns - returns.mean()) / (returns.std() + 1e-8)
+        baseline_mode = self.config['hyperparameters']['baseline_mode']
+        if baseline_mode == 'zero':
+            baseline = 0.0
+        elif baseline_mode == 'mean':
+            baseline = returns.mean()
+        returns = (returns - baseline) / (returns.std() + 1e-8)
             
         return returns
     

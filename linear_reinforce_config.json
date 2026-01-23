@@ -3,12 +3,12 @@
   "hyperparameters": {
     "gamma": 0.95, 
     "sigma": 0.2,  
-    "learning_rate": 0.005,
-    "n_episodes": 1000,
+    "learning_rate": 0.002,
+    "n_episodes": 2000,
     "max_steps": 200,
-    "baseline": "zero",
     "batch_size": 10,
-    "weight_init_mode": "hover"
+    "weight_init_mode": "random",
+    "baseline_mode": "zero"
   },
   "rewards": {
     "hit_bonus": 100.0,
