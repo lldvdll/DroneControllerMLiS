@@ -70,13 +70,12 @@ class Policy():
     def __init__(self, input_size, output_size, init_mode='random'):
         print(f"Weight Initialisation Mode: {init_mode}")
         self.weights = np.random.randn(input_size, output_size)  # Initialize weights with random values
-        self.weights /= np.linalg.norm(self.weights, axis=0)  # Normalise the weights so they start near 0
+        self.weights /= (np.linalg.norm(self.weights, axis=0) * 5)  # Normalise the weights so they start nearer 0
         if init_mode == 'random':
             pass
         # Initialise weights to prefer hovering
         elif init_mode == 'hover':
-            self.weights /= 10  # Normalise more so they're tight around 0
-            self.weights[-1, 1] += 1.  # bias term for thrust set to counter gravity
+            self.weights[-1, 0] += 1.  # bias term for thrust set to counter gravity
         
         # Print weights formatting to 3 decimal places
         with np.printoptions(suppress=True, precision=3):
