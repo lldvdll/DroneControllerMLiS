@@ -2,17 +2,18 @@
   "experiment_name": "dummy",
   "hyperparameters": {
     "gamma": 0.95, 
-    "sigma": 0.2,  
-    "learning_rate": 0.002,
+    "sigma": 0.1,  
+    "learning_rate": 0.001,
     "n_episodes": 2000,
     "max_steps": 200,
     "batch_size": 10,
-    "weight_init_mode": "random",
+    "weight_init_mode": "hover",
     "baseline_mode": "zero"
   },
   "rewards": {
-    "hit_bonus": 100.0,
+    "hit_bonus": null,
     "distance_weight": null,
-    "delta_distance": 1.0
+    "delta_distance": null,
+    "pitch_penalty": 1.0
   }
 }

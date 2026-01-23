@@ -213,6 +213,10 @@ class LinearReinforceController(FlightController):
         # Calculate distance to target
         target = drone.get_next_target()
         dist = np.linalg.norm([target[0] - drone.x, target[1] - drone.y])
+         
+        # Distance Penalty
+        if cfg['distance_weight'] is not None:
+            reward -= dist * cfg['distance_weight']
         
         # Delta distance - simple +/-x based on moving toward or away from target
         if cfg['delta_distance'] is not None:
@@ -223,10 +227,10 @@ class LinearReinforceController(FlightController):
                 delta_bin = 1.0 if delta_dist > 0.0 else -1.0  # Binary change
                 reward += (delta_dist * cfg['delta_distance']) 
             self.prev_dist = dist  # Update the stored distance
-         
-        # Distance Penalty
-        if cfg['distance_weight'] is not None:
-            reward -= dist * cfg['distance_weight']
+            
+        # Pitch penalty
+        if cfg['pitch_penalty'] is not None:
+            reward -= np.pow(drone.pitch, 2) * cfg['pitch_penalty']
         
         # Hit Bonus
         if cfg['hit_bonus'] is not None:
