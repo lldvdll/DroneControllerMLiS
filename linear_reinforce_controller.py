@@ -67,7 +67,28 @@ class Policy():
             pass
         # Initialise weights to prefer hovering
         elif init_mode == 'hover':
-            self.weights[-1, 0] += 1.  # bias term for thrust set to counter gravity
+            self.weights[-1, 0] = 1.  # bias term for thrust set to counter gravity
+            self.weights[-1, 1] = 0.0  # Fix pitch bias to zero to it start from being level
+            self.weights[:, 1] *= 0.1  # Make pitch weights even smaller to start
+        
+        elif init_mode == 'heuristic':
+            self.weights = np.zeros((input_size, output_size))
+            # Thrust
+            self.weights[6, 0] = 1.0  # Bias: 1 - counteract gravity and hover
+            self.weights[1, 0] = 0.6  # dy: Positive weight - target above > increase thrust
+            self.weights[3, 0] = -0.5  # vy: Negative weight - vertical speed damping
+
+            # Roll
+            self.weights[6, 1] = 0.0  # Bias: 0 - default to level
+            self.weights[0, 1] = 0.15  # dx: target right > turn right
+            self.weights[2, 1] = -0.15  # vx: lateral velocity damping to stop mega drift
+            self.weights[4, 1] = -0.5  # pitch: if tilted, try to level out
+            self.weights[5, 1] = -0.1  # pitch_vel: Damping for rotation speed, stop spinning
+            
+            # Counter state normalisation
+            norms = np.array([2.0, 2.0, 5.0, 5.0, 1.0, 1.0, 1.0])
+            self.weights[:, 0] *= norms
+            self.weights[:, 1] *= norms
         
         # Print weights formatting to 3 decimal places
         with np.printoptions(suppress=True, precision=3):
@@ -129,6 +150,8 @@ class LinearReinforceController(FlightController):
         # Store previous distance for delta distance reward
         self.prev_dist = None
         
+    def get_max_simulation_steps(self):
+            return 5000 
 
     def get_state(self, drone: Drone):
         """
@@ -184,6 +207,9 @@ class LinearReinforceController(FlightController):
         
         # Clip to ensure valid motor values [0, 1], since sampling during training can result in invalid values
         thrusts = np.clip(thrusts, 0, 1)
+        
+        thrusts = (float(np.clip(left, 0.0, 1.0)), 
+                float(np.clip(right, 0.0, 1.0)))
         
         return thrusts
 
@@ -306,21 +332,22 @@ class LinearReinforceController(FlightController):
     def train(self):
         """
         Run episode loop and update policy
-            Loop over episodes
+            Per episodes
                 Initialise environment
                 Get States and Actions
                 Step through environment
                 Calculate rewards
-            Calculate returns
-            Update policy
+            Per batch
+                Normmalise returns
+                Update policy
         """
         print(f"Starting Training: {self.config['experiment_name']}")
         
-        for episode in range(self.config['hyperparameters']['n_episodes']):
+        n_episodes = self.config['hyperparameters']['n_episodes']
+        for episode in range(n_episodes):
             
             # Run episode
             states, actions, rewards = self.run_episode()
-            
                 
             # Save weights periodically, incase it craps out
             if episode % 100 == 0:
@@ -329,21 +356,22 @@ class LinearReinforceController(FlightController):
             # Calculate returns - espisodic returns for discounting, will normalise over batch
             returns = self.get_returns(rewards, normalise=False)
             
-            # Batch updates
+            # Store prtial batch
             batch_size = self.config['hyperparameters']['batch_size']
             if episode % batch_size == 0:  # Start a new batch
                 batch_states = states
                 batch_actions = actions
                 batch_all_returns = returns
+                batch_rewards = np.sum(rewards)
                 
             else:  # Continue batch - note also accumulates at end of batch
                 batch_states.extend(states)
                 batch_actions.extend(actions)
                 batch_all_returns.extend(returns)
+                batch_rewards += np.sum(rewards)
                 
-            if (episode + 1) % batch_size == 0:  # End of batch
-                
-                # Normalise returns and update policy
+            # End of batch: Normalise returns, update policy, and log
+            if (episode + 1) % batch_size == 0:
                 returns_norm = self.normalise_returns(batch_all_returns)
                 grad_norm = self.policy.backward(  
                     batch_states, 
@@ -352,13 +380,8 @@ class LinearReinforceController(FlightController):
                     self.config['hyperparameters']['sigma'], 
                     self.config['hyperparameters']['learning_rate']
                 )
-                
-                # Log for batch
-                average_reward = np.mean(rewards)
-                print(f"Episode {episode}: Average Reward: {average_reward:.2f}")
-
-            
-                # Update logger
+                average_reward = batch_rewards / (n_episodes * batch_size)
+                print(f"Batch {(episode + 1) / batch_size}: Average Reward: {average_reward:.4f}")
                 self.logger.log_episode(average_reward, grad_norm)
                 
         # Save final weights

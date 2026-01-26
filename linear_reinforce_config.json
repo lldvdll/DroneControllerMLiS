@@ -1,19 +1,19 @@
 {
   "experiment_name": "dummy",
   "hyperparameters": {
-    "gamma": 0.95, 
-    "sigma": 0.1,  
+    "gamma": 0.9, 
+    "sigma": 0.01,  
     "learning_rate": 0.001,
-    "n_episodes": 2000,
-    "max_steps": 200,
+    "n_episodes": 1000,
+    "max_steps": 5000,
     "batch_size": 10,
-    "weight_init_mode": "hover",
-    "baseline_mode": "zero"
+    "weight_init_mode": "heuristic",
+    "baseline_mode": "mean"
   },
   "rewards": {
-    "hit_bonus": null,
-    "distance_weight": null,
-    "delta_distance": null,
-    "pitch_penalty": 1.0
+    "hit_bonus": 100,
+    "distance_weight": 1.0,
+    "delta_distance": 10.0,
+    "pitch_penalty": 0.05
   }
 }
