@@ -151,7 +151,7 @@ class LinearReinforceController(FlightController):
         self.prev_dist = None
         
     def get_max_simulation_steps(self):
-            return 5000 
+            return 3000 
 
     def get_state(self, drone: Drone):
         """
@@ -227,6 +227,15 @@ class LinearReinforceController(FlightController):
         """
         cfg = self.config['rewards']
         reward = 0.0
+        reward_log = {
+            'distance_weight': 0.0,
+            'delta_distance': 0.0,
+            'pitch_penalty': 0.0,
+            'spin_penalty': 0.0,
+            'hit_bonus': 0.0,
+            'crash_penalty': 0.0,
+            'dx_penalty': 0.0
+        }
         
         # Calculate distance to target
         target = drone.get_next_target()
@@ -234,7 +243,9 @@ class LinearReinforceController(FlightController):
          
         # Distance Penalty
         if cfg['distance_weight'] is not None:
-            reward -= dist * cfg['distance_weight']
+            part = -dist * cfg['distance_weight']
+            reward += part
+            reward_log['distance_weight'] = part
         
         # Delta distance - simple +/-x based on moving toward or away from target
         if cfg['delta_distance'] is not None:
@@ -243,19 +254,53 @@ class LinearReinforceController(FlightController):
             else:
                 delta_dist = self.prev_dist - dist  # Continuous change
                 delta_bin = 1.0 if delta_dist > 0.0 else -1.0  # Binary change
-                reward += (delta_dist * cfg['delta_distance']) 
+                part = (delta_dist * cfg['delta_distance']) 
+                reward += part
+                reward_log['delta_distance'] = part
             self.prev_dist = dist  # Update the stored distance
             
         # Pitch penalty
         if cfg['pitch_penalty'] is not None:
-            reward -= np.pow(drone.pitch, 2) * cfg['pitch_penalty']
+            part = -np.pow(drone.pitch, 2) * cfg['pitch_penalty']
+            reward += part
+            reward_log['pitch_penalty'] = part
         
         # Hit Bonus
         if cfg['hit_bonus'] is not None:
             if drone.has_reached_target_last_update:
-                reward += cfg['hit_bonus']
+                part = cfg['hit_bonus']
+                # Modulator: 1.0 if stopped, 0.0 if speed > 1.0
+                if self.config['hit_slow']:
+                    speed = np.linalg.norm([drone.velocity_x, drone.velocity_y])  
+                    stability = max(0.0, 1.0 - speed) 
+                    part *= stability
+                reward += part
+                reward_log['hit_bonus'] = part
+                
+        # Penalise high pitch velocity
+        if cfg.get('spin_penalty') is not None:
+            part = -(drone.pitch_velocity ** 2) * cfg['spin_penalty']
+            reward += part
+            reward_log['spin_penalty'] = part
+        
+        # Crash penalty - early stopping
+        if cfg.get('crash_penalty') is not None:
+            limit = self.config['hyperparameters']['safe_zone']
+            if abs(drone.x) > limit or abs(drone.y) > limit:
+                part = -cfg['crash_penalty']
+                reward += part
+                reward_log['crash_penalty'] = part
+                
+        # Lateral speed penalty
+        if cfg.get('dx_penalty') is not None:
+            part = -(drone.velocity_x ** 2) * cfg['dx_penalty']
+            reward += part
+            reward_log['dx_penalty'] = part
+        
+        # Log total
+        # reward_log['total'] = reward
             
-        return reward
+        return reward, reward_log
     
     def get_returns(self, rewards, normalise=True):
         """
@@ -299,6 +344,7 @@ class LinearReinforceController(FlightController):
         states = []
         actions = []
         rewards = []
+        reward_logs = []
         drone = self.init_drone(mode='random')
         
         # Iniitalise previous distance at the start of each episode. 
@@ -319,14 +365,21 @@ class LinearReinforceController(FlightController):
             drone.step_simulation(self.get_time_interval())
             
             # Get rewards
-            reward = self.get_reward(drone)
+            reward, reward_log = self.get_reward(drone)
+            reward_logs.append(reward_log)
             
             # Store data
             states.append(state)
             actions.append(action)
             rewards.append(reward)
             
-        return states, actions, rewards
+            # Early stopping
+            limit = self.config['hyperparameters']['safe_zone']
+            if self.config['rewards']['crash_penalty'] is not None:
+                if abs(drone.x) > limit or abs(drone.y) > limit:
+                    break
+            
+        return states, actions, rewards, reward_logs
         
 
     def train(self):
@@ -347,7 +400,7 @@ class LinearReinforceController(FlightController):
         for episode in range(n_episodes):
             
             # Run episode
-            states, actions, rewards = self.run_episode()
+            states, actions, rewards, reward_logs = self.run_episode()
                 
             # Save weights periodically, incase it craps out
             if episode % 100 == 0:
@@ -380,7 +433,7 @@ class LinearReinforceController(FlightController):
                     self.config['hyperparameters']['sigma'], 
                     self.config['hyperparameters']['learning_rate']
                 )
-                average_reward = batch_rewards / (n_episodes * batch_size)
+                average_reward = batch_rewards / batch_size
                 print(f"Batch {(episode + 1) / batch_size}: Average Reward: {average_reward:.4f}")
                 self.logger.log_episode(average_reward, grad_norm)
                 

@@ -5,16 +5,22 @@ import numpy as np
 import math
 from typing import Tuple
 from flight_controller import FlightController
+from matplotlib import pyplot as plt
 
 #---------------------WRITE YOUR OWN CODE HERE------------------------#
-from heuristic_controller import HeuristicController
-from custom_controller import CustomController
-from reinforce_1layer_controller import Reinforce1LayerController
+# from heuristic_controller import HeuristicController
+# from custom_controller import CustomController
+# from reinforce_1layer_controller import Reinforce1LayerController
+# from gaussian_reinforce_controller import GaussianReinforceController
+# from physics_reinforce_controller import PhysicsReinforceController
+from solution_controller import SolutionController
+from linear_reinforce_controller import LinearReinforceController
+
 
 def generate_controller() -> FlightController:
     # return HeuristicController() # <--- Replace this with your own written controller
-    # return CustomController()
-    return Reinforce1LayerController()
+    return LinearReinforceController()
+    # return SolutionController()
 
 def is_training() -> bool:
     return True # <--- Replace this with True if you want to train, false otherwise
@@ -46,6 +52,10 @@ def main(controller: FlightController):
     # Initialise pygame
     pygame.init()
     clock = pygame.time.Clock()
+    
+    # Initialise fonts for rewards display
+    pygame.font.init()
+    font = pygame.font.SysFont('Arial', 16)
 
     # Load the relevant graphics into pygame
     drone_img = pygame.image.load('graphics/drone_small.png')
@@ -62,7 +72,11 @@ def main(controller: FlightController):
     max_simulation_steps = controller.get_max_simulation_steps()
     delta_time = controller.get_time_interval()
 
+    # Track cumulative rewards
+    rewards_cum = {}
+    reward_history = []
 
+    # Run the simulation
     running = True
     while running:
         for event in pygame.event.get():
@@ -75,6 +89,12 @@ def main(controller: FlightController):
         drone.set_thrust(controller.get_thrusts(drone))
         # Update the simulation
         drone.step_simulation(delta_time)
+        
+        # Get rewards for displaying
+        _, rewards = controller.get_reward(drone)
+        for k,v in rewards.items():  # Accumulate rewards for display
+            rewards_cum[k] = rewards_cum.get(k, 0) + v        
+        reward_history.append(rewards_cum.copy())  # Track reward history for final plot
 
         # --- Begin Drawing --- #
 
@@ -84,6 +104,8 @@ def main(controller: FlightController):
         draw_drone(screen, drone, drone_img)
         # Draw the next target on the screen
         draw_target(drone.get_next_target(), screen, target_img)
+        # Draw reward counter on the screen
+        draw_rewards(screen, font, rewards_cum)
 
         # Actually displays the final frame on the screen
         pygame.display.flip()
@@ -96,8 +118,30 @@ def main(controller: FlightController):
         if (simulation_step_counter>max_simulation_steps):
             drone = controller.init_drone() # Reset the drone
             simulation_step_counter = 0
-
+            
+    # Close the program
+    pygame.quit()
     
+    # Plot the reward history
+    plot_rewards_history(reward_history)
+
+
+def draw_rewards(screen, font, rewards):
+    """Overlay cumulative rewards on screen with %'s to inform reward shaping"""
+    x_offset = 10
+    y_offset = 10
+
+    # Sort keys so they don't jump around
+    for key in sorted(rewards.keys()):
+        val = rewards[key]
+        text_str = f"{key}: {val:.2f}"
+        
+        # Render text (Black)
+        text_surface = font.render(text_str, True, (0, 0, 0))
+        
+        # Draw to screen
+        screen.blit(text_surface, (x_offset, y_offset))
+        y_offset += 20 # Move down for next line    
 
 def draw_target(target_point, screen, target_img):
     target_size = convert_to_screen_size(0.1)
@@ -114,6 +158,63 @@ def draw_drone(screen: pygame.Surface, drone: Drone, drone_img: pygame.Surface):
     rotated_drone_img = pygame.transform.rotate(drone_scaled_img, -drone.pitch * 180 / math.pi)
     drone_scaled_rect = rotated_drone_img.get_rect(center=drone_scaled_center)
     screen.blit(rotated_drone_img, drone_scaled_rect)
+    
+    
+def plot_rewards_history(history):
+    """
+    Generates a stacked area plot of reward components over time.
+    Separates positive and negative components for clarity.
+    """
+    if not history:
+        print("No reward history to plot.")
+        return
+
+    # 1. Organize data
+    keys = set().union(*history)
+    # Filter out 'total' if your controller logs it, so we don't double count
+    component_keys = [k for k in keys if k != 'total']
+    steps = range(len(history))
+    
+    # 2. Setup Plot
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # 3. Stack Calculations
+    pos_bottom = np.zeros(len(history))
+    neg_bottom = np.zeros(len(history))
+    
+    # 4. Plot Stacks
+    for key in component_keys:
+        # Get data for this key across all steps
+        values = np.array([step.get(key, 0.0) for step in history])
+        
+        # Split into positive and negative parts
+        pos_vals = np.maximum(values, 0)
+        neg_vals = np.minimum(values, 0)
+        
+        # Plot positive stack (upwards)
+        p = ax.fill_between(steps, pos_bottom, pos_bottom + pos_vals, label=key, alpha=0.6)
+        pos_bottom += pos_vals
+        
+        # Plot negative stack (downwards)
+        # Use same color as positive part for consistency
+        ax.fill_between(steps, neg_bottom, neg_bottom + neg_vals, color=p.get_facecolor(), alpha=0.6)
+        neg_bottom += neg_vals
+
+    # 5. Plot Total Net Reward (The Black Line)
+    # This shows what the agent actually "feels" (Sum of all components)
+    totals = np.array([sum(step.values()) for step in history])
+    ax.plot(steps, totals, color='black', linewidth=1.5, linestyle='--', label='Net Total')
+
+    # 6. Final Polish
+    ax.set_title("Reward Evolution Over Time (Components)")
+    ax.set_xlabel("Simulation Step")
+    ax.set_ylabel("Reward Magnitude")
+    ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
+    ax.grid(True, alpha=0.3)
+    ax.axhline(0, color='black', linewidth=0.5)
+    
+    plt.tight_layout()
+    plt.show()
 
 if __name__ == "__main__":
 
