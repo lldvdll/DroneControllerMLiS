@@ -8,7 +8,7 @@ Features:
 - Resume training from checkpoints
 
 Usage:
-    python3 train.py --mode curriculum --episodes 12000 --eval-after
+    python3 train.py --mode curriculum --episodes 15000 --eval-after
     python3 train.py --load runs/20260117_004246/q_table.npy --eval-after --episodes 0
 """
 

@@ -223,7 +223,7 @@ def _plot_done_reason_over_time(cols: Dict[str, np.ndarray], out_path: Path, win
     if reason.size == 0:
         return
 
-    cats = ["crash", "max_steps", "success", "stagnate", "other"]
+    cats = ["crash", "max_steps", "success"]
     onehot = {c: np.zeros(reason.size, dtype=float) for c in cats}
 
     for i, r in enumerate(reason):
@@ -237,10 +237,6 @@ def _plot_done_reason_over_time(cols: Dict[str, np.ndarray], out_path: Path, win
             onehot["max_steps"][i] = 1.0
         elif "success" in rlow or "all_targets" in rlow:
             onehot["success"][i] = 1.0
-        elif "stagn" in rlow:
-            onehot["stagnate"][i] = 1.0
-        else:
-            onehot["other"][i] = 1.0
 
     fig, ax = plt.subplots(figsize=(14, 5))
     for c in cats:

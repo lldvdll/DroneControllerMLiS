@@ -67,10 +67,10 @@ class CustomController(FlightController):
         # self.dy1, self.dy2, self.dy3, self.dx4 = 0.105, 0.15, 0.2, 0.3
         self.dx1, self.dx2, self.dx3 = 0.105, 0.3, 0.45
         self.dy1, self.dy2, self.dy3 = 0.105, 0.2, 0.3
-        self.vx0 = 0.18
-        self.vy0 = 0.08
+        self.vx0 = 0.15
+        self.vy0 = 0.06
         self.theta0 = 0.18      # for pitch
-        self.omega0 = 0.2      # for pitch_velocity
+        self.omega0 = 0.15      # for pitch_velocity
 
         # danger threshold: min distance to any wall
         self.b0 = 0.1
@@ -85,11 +85,9 @@ class CustomController(FlightController):
         self.k_progress = 50.0
         self.k_backwards = 0.0
         self.progress_clip = 0.05
-        self.boundary_penalty = 80.0 # terminate penalty if out-of-bounds
+        self.boundary_penalty = 300.0 # terminate penalty if out-of-bounds
         self.near_boundary_penalty_scale = 0.30  # shaping weight near boundary
         self.c_step = 0.002
-        self.stagnate_penalty = 0
-        self.stagnate_limit = 800
 
         # Normalisation distance for progress shaping
         xmin, xmax, ymin, ymax = self.full_bounds
@@ -122,8 +120,7 @@ class CustomController(FlightController):
                 "eps_decay": 0.9995,
                 "eps_min": 0.15,
                 "action_repeat": 1,
-                "stagnate_penalty": 0,  # Disabled - free exploration
-                "stagnate_limit": 9999,
+                "boundary_penalty": 80,
             },
             {
                 "name": "Stage1-Full-dxdyvelocity",
@@ -135,8 +132,7 @@ class CustomController(FlightController):
                 "eps_decay": 0.9995,
                 "eps_min": 0.1,
                 "action_repeat": 3,
-                "stagnate_penalty": 0,
-                "stagnate_limit": 1000,    
+                "boundary_penalty": 80,
             },
             {
                 "name": "Stage2-Full-all",
@@ -148,8 +144,7 @@ class CustomController(FlightController):
                 "eps_decay": 0.999,
                 "eps_min": 0.05,
                 "action_repeat": 3,
-                "stagnate_penalty": 0,
-                "stagnate_limit": 800,
+                "boundary_penalty": self.boundary_penalty,
             },
         ]
         self.stage_idx = 0
@@ -157,9 +152,6 @@ class CustomController(FlightController):
         self.recent_returns: List[float] = [] # Total reward per episode
         self.recent_hits: List[int] = [] # Number of targets hit per episode
         self.hit_thresholds = [0.8, 1.5] # Hit thresholds for stage advancement
-
-        # Forced advancement: advance stage after max episodes even if threshold not met
-        # self.force_advance_episodes = [10000, 20000]  # Force advance at these episode counts
 
         # log training history
         self.q_path = None
@@ -425,37 +417,39 @@ class CustomController(FlightController):
     def _h_hover_stabilise(self, drone: Drone) -> Tuple[float, float]:
         # Hover at current altitude with pitch stabilisation
         u0 = 0.5
-        k_theta = 0.6  # Stiffness original 0.6 -> 0.7
-        k_omega = 0.25 # Damping  original 0.25 -> 0.35
+        k_theta = 0.6  # Stiffness 0.6 -> 0.7
+        k_omega = 0.25 # Damping 0.25 -> 0.35
         tau = -k_theta * float(drone.pitch) - k_omega * float(drone.pitch_velocity)
         return self._thrust_from_u_tau(u0, tau)
 
     # def _h_tilt_left(self, drone: Drone) -> Tuple[float, float]:
         # Tilt left by applying negative torque, with angular damping.
-        # u0 = 0.52  # original 0.5 -> 0.52
+        # u0 = 0.52  # 0.5 -> 0.52
         # tau_cmd = -0.18
-        # k_omega = 0.2  # original 0.15 -> 0.2
+        # k_omega = 0.2  # 0.15 -> 0.2
         # tau = tau_cmd - k_omega * float(drone.pitch_velocity)
         # return self._thrust_from_u_tau(u0, tau)
 
     # def _h_tilt_right(self, drone: Drone) -> Tuple[float, float]:
         # Tilt right by applying positive torque, with angular damping.
-        # u0 = 0.52  # original 0.5 -> 0.52
+        # u0 = 0.52  # 0.5 -> 0.52
         # tau_cmd = +0.18
-        # k_omega = 0.2  # original 0.15 -> 0.2
+        # k_omega = 0.2  # 0.15 -> 0.2
         # tau = tau_cmd - k_omega * float(drone.pitch_velocity)
         # return self._thrust_from_u_tau(u0, tau)
     
     def _h_tilt_left(self, drone: Drone) -> Tuple[float, float]:
         # Target a bank angle of ~20 degrees (0.35 radians) - This is steep enough to move fast, but safe from flipping.
-        target_pitch = -0.35 
+        target_pitch = -0.28
         
-        # Boost thrust slightly to maintain altitude - cos(0.35) is ~0.94. So u0=0.53 compensates for gravity (1.0).
-        u0 = 0.53
+        # Boost thrust slightly to maintain altitude - cos(0.28) is ~0.96. So u0=0.53 compensates for gravity (1.0).
+        u0 = 0.52
         
-        # PD Controller to snap to the target angle
-        k_theta = 0.6
-        k_omega = 0.25
+        # high k_theta, low k_omega when far away; low k_theta, high k_omega when close
+        curr_dist = self._distance_to_target(drone)
+        curr_dist = max(0.0, min(curr_dist, 0.3))
+        k_theta = 0.25 + 0.55 * (curr_dist/0.3)    # [0.25 → 0.8]
+        k_omega = 0.4  - 0.2  * (curr_dist/0.3)    # [0.4  → 0.2]
         
         # Error = Current - Target
         pitch_error = float(drone.pitch) - target_pitch
@@ -465,10 +459,15 @@ class CustomController(FlightController):
         return self._thrust_from_u_tau(u0, tau)
 
     def _h_tilt_right(self, drone: Drone) -> Tuple[float, float]:
-        target_pitch = 0.35 
+        target_pitch = 0.25 
         u0 = 0.53
-        k_theta = 0.6
-        k_omega = 0.25
+        
+        # high k_theta, low k_omega when far away; low k_theta, high k_omega when close
+        curr_dist = self._distance_to_target(drone)
+        curr_dist = max(0.0, min(curr_dist, 0.3))
+        k_theta = 0.25 + 0.55 * (curr_dist/0.3)    # [0.25 → 0.8]
+        k_omega = 0.4  - 0.2  * (curr_dist/0.3)    # [0.4  → 0.2]
+
         pitch_error = float(drone.pitch) - target_pitch
         tau = -k_theta * pitch_error - k_omega * float(drone.pitch_velocity)
         return self._thrust_from_u_tau(u0, tau)
@@ -476,16 +475,21 @@ class CustomController(FlightController):
     def _h_boost_up(self, drone: Drone) -> Tuple[float, float]:
         # increase total thrust, keep level
         u0 = 0.6
-        k_theta = 0.6 # original 0.6 -> 0.7
-        k_omega = 0.25 # original 0.25 -> 0.35
+        # high k_theta, low k_omega when far away; low k_theta, high k_omega when close
+        curr_dist = self._distance_to_target(drone)
+        curr_dist = max(0.0, min(curr_dist, 0.3))
+        k_theta = 0.25 + 0.55 * (curr_dist/0.3)    # [0.25 → 0.8]
+        k_omega = 0.4  - 0.2  * (curr_dist/0.3)    # [0.4  → 0.2]
         tau = -k_theta * float(drone.pitch) - k_omega * float(drone.pitch_velocity)
         return self._thrust_from_u_tau(u0, tau)
 
     def _h_boost_down(self, drone: Drone) -> Tuple[float, float]:
         # decrease total thrust, keep level
         u0 = 0.4
-        k_theta = 0.6 # original 0.6 -> 0.7
-        k_omega = 0.25 # original 0.25 -> 0.35
+        curr_dist = self._distance_to_target(drone)
+        curr_dist = max(0.0, min(curr_dist, 0.3))
+        k_theta = 0.25 + 0.55 * (curr_dist/0.3)    # [0.25 → 0.8]
+        k_omega = 0.4  - 0.2  * (curr_dist/0.3)    # [0.4  → 0.2]
         tau = -k_theta * float(drone.pitch) - k_omega * float(drone.pitch_velocity)
         return self._thrust_from_u_tau(u0, tau)
 
@@ -494,7 +498,7 @@ class CustomController(FlightController):
         u0 = 0.5
 
         # vertical damping
-        k_vy = 0.1  # original 0.1 -> 0.15
+        k_vy = 0.1  # 0.1 -> 0.15
         u = u0 - k_vy * float(drone.velocity_y)
 
         # Horizontal damping via pitch control
@@ -503,8 +507,8 @@ class CustomController(FlightController):
         theta_des = float(np.clip(-k_theta_vx * vx, -0.35, 0.35))  # +/- 20 deg
 
         # PD on (theta - theta_des)
-        k_theta = 0.9  # original 0.9 
-        k_omega = 0.35  # original 0.35 -> 0.45
+        k_theta = 0.9 
+        k_omega = 0.35  # 0.35 -> 0.45
         tau = -k_theta * (float(drone.pitch) - theta_des) - k_omega * float(drone.pitch_velocity)
 
         return self._thrust_from_u_tau(u, tau)
@@ -535,7 +539,6 @@ class CustomController(FlightController):
         "step": 0.0,
         "near_boundary": 0.0,
         "oob":0.0,
-        "stagnate":0.0
         }
         
         tx, ty = drone.get_next_target()
@@ -569,7 +572,8 @@ class CustomController(FlightController):
             
             # if abs(dd) > 2e-4:
             if dd > 0:
-                progress = float(min(dd, self.progress_clip))  #clipped progress shaping for stability
+                # progress = float(min(dd, self.progress_clip))  #clipped progress shaping for stability
+                progress = dd
             else:
                 backwards = -dd
             
@@ -638,13 +642,6 @@ class CustomController(FlightController):
         # already at last stage
         if self.stage_idx >= len(self.curriculum_stages) - 1:
             return
-        
-        # Check for forced advancement
-        #if (self.stage_idx < len(self.force_advance_episodes) and 
-        #    self.episode_count >= self.force_advance_episodes[self.stage_idx]):
-        #    print(f"\n[Curriculum] forced advancement at episode {self.episode_count}")
-        #    self._advance_stage()
-        #    return
     
         # Check thresholds
         avg_hit = float(np.mean(self.recent_hits))
@@ -688,10 +685,9 @@ class CustomController(FlightController):
         self.eps_decay = float(stage["eps_decay"])
         self.eps_min = float(stage["eps_min"])
         self.action_repeat = int(stage["action_repeat"])
-        self.stagnate_limit = int(stage["stagnate_limit"])
-        self.stagnate_penalty = float(stage["stagnate_penalty"])
         self.target_bounds = stage["target_bounds"]
         self.total_targets = int(stage["n"])
+        self.boundary_penalty = int(stage["boundary_penalty"])
         return stage
    
     # ============================================================
@@ -717,7 +713,6 @@ class CustomController(FlightController):
                 "step": 0.0,
                 "near_boundary": 0.0,
                 "oob": 0.0,
-                "stagnate": 0.0,
             }
             done_reason = ""
 
@@ -741,8 +736,6 @@ class CustomController(FlightController):
 
             # Initialise distance trackers
             prev_dist = self._distance_to_target(drone)
-            best_dist = prev_dist
-            stagnate_count = 0
 
             # Initialise state and action
             state_tuple = self.get_state_tuple(drone)
@@ -813,20 +806,9 @@ class CustomController(FlightController):
                         ep_hits += 1
                         hit_step_counts_ep.append(steps_since_last_hit)
                         steps_since_last_hit = 0 # reset steps count to hit target
-                        # After hit, target switches - reset stagnation tracking
-                        best_dist = self._distance_to_target(drone)
-                        stagnate_count = 0
-                        prev_dist = best_dist
+                        prev_dist = self._distance_to_target(drone)
                     else:
                         prev_dist = curr_dist
-
-                    # Update stagnation tracking
-                    if curr_dist < best_dist - 1e-4:
-                        best_dist = curr_dist
-                        stagnate_count = 0
-                    else:
-                        stagnate_count += 1
-
                     # =============================================
                     # Check terminal conditions
                     # =============================================
@@ -837,14 +819,6 @@ class CustomController(FlightController):
                         r_sums["oob"] -= self.boundary_penalty
                         crashed = 1
                         done_reason = "crash"
-                        done = True
-                        break
-
-                    # Stagnation - not making progress
-                    if (self.stagnate_penalty > 0) and (stagnate_count >= self.stagnate_limit):
-                        accumulated_reward -= self.stagnate_penalty
-                        r_sums["stagnate"] -= self.stagnate_penalty
-                        done_reason = "stagnate"
                         done = True
                         break
                     
@@ -936,7 +910,6 @@ class CustomController(FlightController):
                     "r_step": r_sums["step"],
                     "r_near_boundary": r_sums["near_boundary"],
                     "r_oob": r_sums["oob"],
-                    "r_stagnate": r_sums["stagnate"],
                     "mean_return_per_step": total_return / max(1, steps_taken),
                     "dx_bin_counts": dict(dx_bins),
                     "dy_bin_counts": dict(dy_bins),
@@ -980,7 +953,6 @@ class CustomController(FlightController):
                     "r_step": r_sums["step"],
                     "r_near_boundary": r_sums["near_boundary"],
                     "r_oob": r_sums["oob"],
-                    "r_stagnate": r_sums["stagnate"],
                     "mean_return_per_step": total_return / max(1, steps_taken),
                     "dx_bin_counts": dict(dx_bins),
                     "dy_bin_counts": dict(dy_bins),
