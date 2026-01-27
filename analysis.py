@@ -286,7 +286,7 @@ def _plot_return_vs_hits_box(cols: Dict[str, np.ndarray], out_path: Path) -> Non
 
 def _plot_reward_share_100pct(cols: Dict[str, np.ndarray], out_path: Path, block: int) -> None:
     # only if r_* exists
-    needed = ["r_hit", "r_progress", "r_step", "r_near_boundary", "r_oob", "r_stagnate"]
+    needed = ["r_hit", "r_progress", "r_step", "r_near_boundary", "r_oob"]
     present = [k for k in needed if k in cols]
     if not present:
         print("[analysis] No r_* columns found; skip reward share plot")
@@ -392,7 +392,7 @@ def run_analysis(
     _plot_return_hits(cols, out_dir / "rolling_mean_return_hits.png", window)
     _plot_crash_steps(cols, out_dir / "crash_and_steps.png", window)
     _plot_done_reason_over_time(cols, out_dir / "done_reason_over_time.png", window)
-    _plot_return_vs_hits_box(cols, out_dir / "return_vs_hits_box.png")
+    # _plot_return_vs_hits_box(cols, out_dir / "return_vs_hits_box.png")
     _plot_reward_share_100pct(cols, out_dir / f"reward_decomp_share_100_block{share_block}.png", share_block)
     _plot_reward_zscore(cols, out_dir / "reward_decomp_zscore.png", window)
 

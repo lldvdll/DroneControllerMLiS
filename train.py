@@ -8,7 +8,7 @@ Features:
 - Resume training from checkpoints
 
 Usage:
-    python3 train.py --mode curriculum --episodes 20000 --eval-after
+    python3 train.py --mode curriculum --episodes 12000 --eval-after
     python3 train.py --load runs/20260117_004246/q_table.npy --eval-after --episodes 0
 """
 
@@ -128,6 +128,7 @@ def main():
     # Paths for saving
     q_path = os.path.join(run_dir, "q_table.npy")
     log_path = os.path.join(run_dir, "q_table_train_log.jsonl")
+    csv_log_path = os.path.join(run_dir, "q_table_train_log.csv")
     eval_fixed_path = os.path.join(run_dir, "eval_fixed.json")
     eval_random_path = os.path.join(run_dir, "eval_random.json")
     
@@ -147,6 +148,7 @@ def main():
     ctrl.target_mode = args.mode
     ctrl.q_path = q_path
     ctrl.log_path = log_path
+    ctrl.csv_log_path = csv_log_path
     
     # Load existing Q-table if specified
     if args.load:

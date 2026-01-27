@@ -8,16 +8,10 @@ from flight_controller import FlightController
 
 #---------------------WRITE YOUR OWN CODE HERE------------------------#
 from heuristic_controller import HeuristicController
-from custom_controller import CustomController
+from SARSA_controller import CustomController
 
 def generate_controller() -> FlightController:
-    return HeuristicController() # <--- Replace this with your own written controller
-    # return CustomController()
-
-def is_training() -> bool:
-    return False # <--- Replace this with True if you want to train, false otherwise
-def is_saving() -> bool:
-    return False # <--- Replace this with True if you want to save the results of training, false otherwise
+    return CustomController() # <--- Replace this with your own written controller
 
 #---------------------------------------------------------------------#
 SCREEN_WIDTH = 720
@@ -73,6 +67,12 @@ def main(controller: FlightController):
         drone.set_thrust(controller.get_thrusts(drone))
         # Update the simulation
         drone.step_simulation(delta_time)
+        
+        # Stop if all targets are completed
+        next_target = drone.get_next_target()
+        if next_target is None:
+            running = False
+            continue
 
         # --- Begin Drawing --- #
 
@@ -81,7 +81,7 @@ def main(controller: FlightController):
         # Draw the current drone on the screen
         draw_drone(screen, drone, drone_img)
         # Draw the next target on the screen
-        draw_target(drone.get_next_target(), screen, target_img)
+        draw_target(next_target, screen, target_img)
 
         # Actually displays the final frame on the screen
         pygame.display.flip()
@@ -90,10 +90,10 @@ def main(controller: FlightController):
         clock.tick(60)
 
         # Checks whether to reset the current drone
-        simulation_step_counter+=1
-        if (simulation_step_counter>max_simulation_steps):
-            drone = controller.init_drone() # Reset the drone
-            simulation_step_counter = 0
+        # simulation_step_counter+=1
+        # if (simulation_step_counter>max_simulation_steps):
+            # drone = controller.init_drone() # Reset the drone
+            # simulation_step_counter = 0
 
     
 
@@ -114,13 +114,10 @@ def draw_drone(screen: pygame.Surface, drone: Drone, drone_img: pygame.Surface):
     screen.blit(rotated_drone_img, drone_scaled_rect)
 
 if __name__ == "__main__":
-
+    
     controller = generate_controller()
-    if is_training():
-        controller.train()
-        if is_saving():
-            controller.save()        
-    else:
-        controller.load()
+    controller.target_mode = "random"
+    controller.q_path = "runs/20260127_185605/q_table.npy"
+    controller.load()
     
     main(controller)

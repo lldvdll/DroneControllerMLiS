@@ -33,6 +33,8 @@ from typing import List, Tuple, Dict, Any
 from drone import Drone
 from flight_controller import FlightController
 import json
+import csv
+from collections import Counter
 
 Point = Tuple[float, float]
 
@@ -48,8 +50,8 @@ class CustomController(FlightController):
         self.n_targets_random = 5
 
         # World bounds
-        self.full_bounds = (-1, 1, -0.75, 0.75)  # xmin, xmax, ymin, ymax
-        self.target_bounds = (-0.75, 0.75, -0.5, 0.5)  # target region
+        self.full_bounds = (-0.75, 0.75, -0.5, 0.5)  # xmin, xmax, ymin, ymax
+        self.target_bounds = (-0.6, 0.6, -0.4, 0.4)  # early training central target region
         
         # Target sampling constraints
         self.min_separation = 0.20 # min distance between targets
@@ -61,14 +63,17 @@ class CustomController(FlightController):
         self.dt = 0.01
 
         # Discretisation thresholds
-        self.dx1, self.dx2, self.dx3 = 0.15, 0.3, 0.45
-        self.dy1, self.dy2, self.dy3 = 0.15, 0.2, 0.3
-        self.v0 = 0.25          # for vx, vy
+        # self.dx1, self.dx2, self.dx3, self.dx4 = 0.105, 0.15, 0.3, 0.45
+        # self.dy1, self.dy2, self.dy3, self.dx4 = 0.105, 0.15, 0.2, 0.3
+        self.dx1, self.dx2, self.dx3 = 0.105, 0.3, 0.45
+        self.dy1, self.dy2, self.dy3 = 0.105, 0.2, 0.3
+        self.vx0 = 0.18
+        self.vy0 = 0.08
         self.theta0 = 0.18      # for pitch
-        self.omega0 = 0.45      # for pitch_velocity
+        self.omega0 = 0.2      # for pitch_velocity
 
         # danger threshold: min distance to any wall
-        self.b0 = 0.25
+        self.b0 = 0.1
 
         # State tracking
         self.last_state_tuple = None
@@ -76,26 +81,27 @@ class CustomController(FlightController):
 
         # Reward parameters
         self.R_hit = 500.0
+        # self.R_progress = 0.5
         self.k_progress = 50.0
+        self.k_backwards = 0.0
         self.progress_clip = 0.05
         self.boundary_penalty = 80.0 # terminate penalty if out-of-bounds
         self.near_boundary_penalty_scale = 0.30  # shaping weight near boundary
-        self.c_step = 0.002  
+        self.c_step = 0.002
         self.stagnate_penalty = 0
         self.stagnate_limit = 800
 
         # Normalisation distance for progress shaping
         xmin, xmax, ymin, ymax = self.full_bounds
-        self.D_norm = float(np.sqrt((xmax - xmin) ** 2 + (ymax - ymin) ** 2))
 
-        # SARSA default parameters
+        # default parameters
         self.n_states = 7938
         self.n_actions = 6
         self.gamma = 0.999 # gamma discount
         self.alpha = 0.10 # learning rate
         self.epsilon = 1.0 # exploration
-        self.eps_decay = 0.999
-        self.eps_min = 0.05
+        self.eps_decay = 0.9995
+        self.eps_min = 0.2
         self.epsilon_eval = 0.0 # no exploration during evaluation
         self.action_repeat_eval = 1
 
@@ -107,8 +113,9 @@ class CustomController(FlightController):
         # Curriculum stages
         self.curriculum_stages = [
             {
-                "name": "Stage0-Easy",
+                "name": "Stage0-Central-dxdyvelocity",
                 "n": 2,
+                "target_bounds": self.target_bounds, 
                 "max_steps": 2500,
                 "alpha": 0.1,
                 "eps_start": 1.0, # Start with full exploration
@@ -119,8 +126,9 @@ class CustomController(FlightController):
                 "stagnate_limit": 9999,
             },
             {
-                "name": "Stage1-Medium",
+                "name": "Stage1-Full-dxdyvelocity",
                 "n": 3,
+                "target_bounds": self.full_bounds, 
                 "max_steps": 3000,
                 "alpha": 0.1,
                 "eps_start": 0.6,  # Start with moderate exploration
@@ -131,16 +139,17 @@ class CustomController(FlightController):
                 "stagnate_limit": 1000,    
             },
             {
-                "name": "Stage2-Hard",
+                "name": "Stage2-Full-all",
                 "n": 5,
-                "max_steps": self.max_steps,
-                "alpha": 0.10,
+                "target_bounds": self.full_bounds, 
+                "max_steps": 3500,
+                "alpha": 0.1,
                 "eps_start": 0.4,
                 "eps_decay": 0.999,
                 "eps_min": 0.05,
-                "action_repeat": 4,
+                "action_repeat": 3,
                 "stagnate_penalty": 0,
-                "stagnate_limit": 800,     
+                "stagnate_limit": 800,
             },
         ]
         self.stage_idx = 0
@@ -148,22 +157,14 @@ class CustomController(FlightController):
         self.recent_returns: List[float] = [] # Total reward per episode
         self.recent_hits: List[int] = [] # Number of targets hit per episode
         self.hit_thresholds = [0.8, 1.5] # Hit thresholds for stage advancement
-        self.return_thresholds = [15.0, 30.0]  # Optional return thresholds for stage advancement
-        self.use_return_gate = False # turn return thresholds off for now
 
         # Forced advancement: advance stage after max episodes even if threshold not met
         # self.force_advance_episodes = [10000, 20000]  # Force advance at these episode counts
 
-        # Training history
-        self.episode_returns: List[float] = []
-        self.episode_hits: List[int] = []
-        self.episode_crashes: List[int] = []
-        self.episode_steps: List[int] = []
-        self.episode_stage: List[int] = []
-
         # log training history
         self.q_path = None
         self.log_path = None
+        self.csv_log_path = None
         self.flush_log_every = 10
 
     # ============================================================
@@ -251,7 +252,7 @@ class CustomController(FlightController):
         elif self.target_mode == "random":
             targets = self._sample_random_targets(
                 n=self.n_targets_random,
-                bounds=self.target_bounds,
+                bounds=self.full_bounds,
                 min_sep=self.min_separation,
                 min_from_origin=self.min_from_origin,
                 min_from_bounds = self.min_from_bounds
@@ -261,7 +262,7 @@ class CustomController(FlightController):
             stage = self.curriculum_stages[self.stage_idx]
             targets = self._sample_random_targets(
                 n=int(stage["n"]),
-                bounds=self.target_bounds,
+                bounds=stage["target_bounds"],
                 min_sep=self.min_separation,
                 min_from_origin=self.min_from_origin,
                 min_from_bounds = self.min_from_bounds
@@ -297,10 +298,10 @@ class CustomController(FlightController):
         return (drone.x < xmin or drone.x > xmax or 
                 drone.y < ymin or drone.y > ymax)
         
-    def _bin_3(self, value: float, threshold: float) -> int:
-        if value < -threshold:
+    def _bin_3(self, value: float,t0: float) -> int:
+        if value < -t0:
             return 0
-        if value > threshold:
+        if value > t0:
             return 2
         return 1
     
@@ -330,6 +331,25 @@ class CustomController(FlightController):
             return 5
         return 6
     
+    def _bin_9(self, value: float, t1: float, t2: float, t3: float, t4: float) -> int:
+        if value < -t4:
+            return 0
+        if value < -t3:
+            return 1
+        if value < -t2:
+            return 2
+        if value < -t1:
+            return 3
+        if value <= t1:
+            return 4
+        if value <= t2:
+            return 5
+        if value <= t3:
+            return 6
+        if value <= t4:
+            return 7
+        return 8
+    
     def get_state_tuple(self, drone: Drone) -> Tuple[int, int, int, int, int, int, int]:
         """
         Convert drone state to discrete tuple:
@@ -349,8 +369,8 @@ class CustomController(FlightController):
 
         dx_bin = self._bin_7(dx, self.dx1, self.dx2, self.dx3)
         dy_bin = self._bin_7(dy, self.dy1, self.dy2, self.dy3)
-        vx_bin = self._bin_3(vx, self.v0)
-        vy_bin = self._bin_3(vy, self.v0)
+        vx_bin = self._bin_3(vx, self.vx0)
+        vy_bin = self._bin_3(vy, self.vy0)
         theta_bin = self._bin_3(theta, self.theta0)
         omega_bin = self._bin_3(omega, self.omega0)
 
@@ -371,6 +391,7 @@ class CustomController(FlightController):
         self.last_state_id = sid
         
         return state
+    
     
     # ============================================================
     # Action
@@ -404,40 +425,67 @@ class CustomController(FlightController):
     def _h_hover_stabilise(self, drone: Drone) -> Tuple[float, float]:
         # Hover at current altitude with pitch stabilisation
         u0 = 0.5
-        k_theta = 0.6
-        k_omega = 0.25
+        k_theta = 0.6  # Stiffness original 0.6 -> 0.7
+        k_omega = 0.25 # Damping  original 0.25 -> 0.35
         tau = -k_theta * float(drone.pitch) - k_omega * float(drone.pitch_velocity)
         return self._thrust_from_u_tau(u0, tau)
 
-    def _h_tilt_left(self, drone: Drone) -> Tuple[float, float]:
+    # def _h_tilt_left(self, drone: Drone) -> Tuple[float, float]:
         # Tilt left by applying negative torque, with angular damping.
-        u0 = 0.5
-        tau_cmd = -0.18
-        k_omega = 0.15
-        tau = tau_cmd - k_omega * float(drone.pitch_velocity)
+        # u0 = 0.52  # original 0.5 -> 0.52
+        # tau_cmd = -0.18
+        # k_omega = 0.2  # original 0.15 -> 0.2
+        # tau = tau_cmd - k_omega * float(drone.pitch_velocity)
+        # return self._thrust_from_u_tau(u0, tau)
+
+    # def _h_tilt_right(self, drone: Drone) -> Tuple[float, float]:
+        # Tilt right by applying positive torque, with angular damping.
+        # u0 = 0.52  # original 0.5 -> 0.52
+        # tau_cmd = +0.18
+        # k_omega = 0.2  # original 0.15 -> 0.2
+        # tau = tau_cmd - k_omega * float(drone.pitch_velocity)
+        # return self._thrust_from_u_tau(u0, tau)
+    
+    def _h_tilt_left(self, drone: Drone) -> Tuple[float, float]:
+        # Target a bank angle of ~20 degrees (0.35 radians) - This is steep enough to move fast, but safe from flipping.
+        target_pitch = -0.35 
+        
+        # Boost thrust slightly to maintain altitude - cos(0.35) is ~0.94. So u0=0.53 compensates for gravity (1.0).
+        u0 = 0.53
+        
+        # PD Controller to snap to the target angle
+        k_theta = 0.6
+        k_omega = 0.25
+        
+        # Error = Current - Target
+        pitch_error = float(drone.pitch) - target_pitch
+        
+        tau = -k_theta * pitch_error - k_omega * float(drone.pitch_velocity)
+        
         return self._thrust_from_u_tau(u0, tau)
 
     def _h_tilt_right(self, drone: Drone) -> Tuple[float, float]:
-        # Tilt right by applying positive torque, with angular damping.
-        u0 = 0.5
-        tau_cmd = +0.18
-        k_omega = 0.15
-        tau = tau_cmd - k_omega * float(drone.pitch_velocity)
+        target_pitch = 0.35 
+        u0 = 0.53
+        k_theta = 0.6
+        k_omega = 0.25
+        pitch_error = float(drone.pitch) - target_pitch
+        tau = -k_theta * pitch_error - k_omega * float(drone.pitch_velocity)
         return self._thrust_from_u_tau(u0, tau)
 
     def _h_boost_up(self, drone: Drone) -> Tuple[float, float]:
         # increase total thrust, keep level
         u0 = 0.6
-        k_theta = 0.6
-        k_omega = 0.25
+        k_theta = 0.6 # original 0.6 -> 0.7
+        k_omega = 0.25 # original 0.25 -> 0.35
         tau = -k_theta * float(drone.pitch) - k_omega * float(drone.pitch_velocity)
         return self._thrust_from_u_tau(u0, tau)
 
     def _h_boost_down(self, drone: Drone) -> Tuple[float, float]:
         # decrease total thrust, keep level
         u0 = 0.4
-        k_theta = 0.6
-        k_omega = 0.25
+        k_theta = 0.6 # original 0.6 -> 0.7
+        k_omega = 0.25 # original 0.25 -> 0.35
         tau = -k_theta * float(drone.pitch) - k_omega * float(drone.pitch_velocity)
         return self._thrust_from_u_tau(u0, tau)
 
@@ -446,7 +494,7 @@ class CustomController(FlightController):
         u0 = 0.5
 
         # vertical damping
-        k_vy = 0.10
+        k_vy = 0.1  # original 0.1 -> 0.15
         u = u0 - k_vy * float(drone.velocity_y)
 
         # Horizontal damping via pitch control
@@ -455,11 +503,9 @@ class CustomController(FlightController):
         theta_des = float(np.clip(-k_theta_vx * vx, -0.35, 0.35))  # +/- 20 deg
 
         # PD on (theta - theta_des)
-        theta = float(drone.pitch)
-        omega = float(drone.pitch_velocity)
-        k_p = 0.9
-        k_d = 0.35
-        tau = -k_p * (theta - theta_des) - k_d * omega
+        k_theta = 0.9  # original 0.9 
+        k_omega = 0.35  # original 0.35 -> 0.45
+        tau = -k_theta * (float(drone.pitch) - theta_des) - k_omega * float(drone.pitch_velocity)
 
         return self._thrust_from_u_tau(u, tau)
 
@@ -477,8 +523,7 @@ class CustomController(FlightController):
             return self._h_boost_down(drone)
         if action_id == self.ARREST_MOTION:
             return self._h_arrest_motion(drone)
-        # fallback
-        return self._h_hover_stabilise(drone)
+        raise ValueError(f"Invalid action_id: {action_id}")
     
     # ============================================================
     # Reward
@@ -493,6 +538,12 @@ class CustomController(FlightController):
         "stagnate":0.0
         }
         
+        tx, ty = drone.get_next_target()
+        dx = tx - drone.x
+        dy = ty - drone.y
+        dx_bin = self._bin_7(dx, self.dx1, self.dx2, self.dx3)
+        dy_bin = self._bin_7(dy, self.dy1, self.dy2, self.dy3)
+
         # Initialisation
         hit = 0
         curr_dist = self._distance_to_target(drone)
@@ -507,9 +558,22 @@ class CustomController(FlightController):
 
         else:
             # ---------- Progress shaping ----------
-            progress = (prev_dist - curr_dist) / self.D_norm # normalised progress shaping
-            progress = float(np.clip(progress, 0, self.progress_clip))  #clipped progress shaping for stability
-            r_parts["progress"] = self.k_progress * progress
+            # sigma = 0.25      # distance scale of the boost (tune)
+            # lam = 3.0         # how much stronger near target (tune)
+            # w  = 1.0 + lam * np.exp(-prev_dist / sigma)   # larger near target
+            
+            dd = prev_dist - curr_dist # progress shaping
+            
+            progress = 0.0
+            backwards = 0.0
+            
+            # if abs(dd) > 2e-4:
+            if dd > 0:
+                progress = float(min(dd, self.progress_clip))  #clipped progress shaping for stability
+            else:
+                backwards = -dd
+            
+            r_parts["progress"] = progress * self.k_progress - backwards * self.k_backwards
             reward += r_parts["progress"]
             
             # ---------- Timestep penalty ----------
@@ -588,10 +652,9 @@ class CustomController(FlightController):
 
         # thresholds for moving from current stage to the next
         gate_hit = self.hit_thresholds[self.stage_idx]
-        gate_return = self.return_thresholds[self.stage_idx]
 
         # Advance if hit threshold met
-        if avg_hit >= gate_hit and (not self.use_return_gate or avg_return >= gate_return):
+        if avg_hit >= gate_hit:
             self._advance_stage(avg_hit, avg_return)
     
     def _advance_stage(self, avg_hit=None, avg_return=None):
@@ -627,17 +690,26 @@ class CustomController(FlightController):
         self.action_repeat = int(stage["action_repeat"])
         self.stagnate_limit = int(stage["stagnate_limit"])
         self.stagnate_penalty = float(stage["stagnate_penalty"])
+        self.target_bounds = stage["target_bounds"]
+        self.total_targets = int(stage["n"])
         return stage
    
     # ============================================================
-    # Training (SARSA)
+    # Training
     # ============================================================
     def _append_episode_log(self, row: dict) -> None:
         with open(self.log_path, "a") as f:
             f.write(json.dumps(row) + "\n")
+    
+    def _append_episode_csv(self, log_dict):
+        file_exists = os.path.isfile(self.csv_log_path)
+        with open(self.csv_log_path, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=log_dict.keys())
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(log_dict)
 
     def train(self, num_episodes: int = 5000, save_every: int = 200, print_every: int = 50,) -> None:
-        
         for ep in range(num_episodes):
             r_sums = {
                 "hit": 0.0,
@@ -662,16 +734,28 @@ class CustomController(FlightController):
             crashed = 0
             steps_taken = 0
             done = False
+            hit_step_counts_ep = []
+            steps_since_last_hit = 0
+            progress_step_count = 0
+            
 
             # Initialise distance trackers
             prev_dist = self._distance_to_target(drone)
             best_dist = prev_dist
             stagnate_count = 0
 
-            # Initialise state and action for SARSA
+            # Initialise state and action
             state_tuple = self.get_state_tuple(drone)
             state_id = self.last_state_id
             action = self._select_action(state_id, self.epsilon)
+            
+            # Log raw state and state bin
+            vx_vals, vy_vals, th_vals, om_vals = [], [], [], []
+            dx_bins = Counter();dy_bins = Counter();vx_bins = Counter(); vy_bins = Counter(); th_bins = Counter(); om_bins = Counter()       
+            # optional: focus near target only
+            near_vx_vals, near_vy_vals, near_th_vals, near_om_vals = [], [], [], []
+            near_dist = 0.15   # define “near target” window
+            sample_every = 10  # log every N simulator steps to keep it light
 
             # =========================================================
             # Main episode loop
@@ -682,6 +766,8 @@ class CustomController(FlightController):
                 # =====================================================
                 accumulated_reward = 0.0 # Accumulator for rewards during action repetition
                 macro_len = 0 # save actually repeated lenth
+                dist_sum = 0.0
+
 
                 for repeat_step in range(self.action_repeat):
                     # Execute action in simulator
@@ -690,16 +776,43 @@ class CustomController(FlightController):
                     drone.step_simulation(self.dt)
                     steps_taken += 1
                     macro_len += 1
+                    steps_since_last_hit += 1
 
                     # update distance & compute immediate reward
                     reward, curr_dist, hit, r_parts = self.compute_reward(drone, prev_dist)
+                    if r_parts["progress"] > 0:
+                        progress_step_count += 1
                     for k in r_sums:
                         r_sums[k] += r_parts.get(k, 0.0)
                     accumulated_reward += reward
+                    
+                    # log raw states and state bins
+                    if (steps_taken % sample_every) == 0:
+                        tx, ty = drone.get_next_target()
+                        dx = tx - drone.x
+                        dy = ty - drone.y
+                        vx = float(drone.velocity_x)
+                        vy = float(drone.velocity_y)
+                        th = float(drone.pitch)
+                        om = float(drone.pitch_velocity)
+                        
+                        vx_vals.append(vx); vy_vals.append(vy); th_vals.append(th); om_vals.append(om)
+                        
+                        dx_bins[self._bin_7(dx, self.dx1, self.dx2, self.dx3)] += 1
+                        dy_bins[self._bin_7(dy, self.dy1, self.dy2, self.dy3)] += 1
+                        vx_bins[self._bin_3(vx, self.vx0)] += 1
+                        vy_bins[self._bin_3(vy, self.vy0)] += 1
+                        th_bins[self._bin_3(th, self.theta0)] += 1
+                        om_bins[self._bin_3(om, self.omega0)] += 1
+                        
+                        if curr_dist < near_dist:
+                            near_vx_vals.append(vx); near_vy_vals.append(vy); near_th_vals.append(th); near_om_vals.append(om)
 
                     # Track target hits
                     if hit == 1:
                         ep_hits += 1
+                        hit_step_counts_ep.append(steps_since_last_hit)
+                        steps_since_last_hit = 0 # reset steps count to hit target
                         # After hit, target switches - reset stagnation tracking
                         best_dist = self._distance_to_target(drone)
                         stagnate_count = 0
@@ -764,9 +877,15 @@ class CustomController(FlightController):
                     next_state_id = self.last_state_id
                     next_action = self._select_action(next_state_id, self.epsilon)
                     
-                    # SARSA update: Q(s,a) ← Q(s,a) + α[r + γQ(s',a') - Q(s,a)]
+                    
                     effective_gamma = self.gamma ** macro_len
+                    # SARSA update: Q(s,a) ← Q(s,a) + α[r + γQ(s',a') - Q(s,a)]
                     Rt = accumulated_reward + effective_gamma * self.Q[next_state_id, next_action]
+                    
+                    # Q learning update: Q(s,a) ← Q(s,a) + α[r + γmax​Q(s',a') - Q(s,a)]
+                    # best_next = np.max(self.Q[next_state_id])
+                    # Rt = accumulated_reward + effective_gamma * best_next
+                    
                     self.Q[state_id, action] += self.alpha * (Rt - self.Q[state_id, action])
 
                     # Move to next state-action pair
@@ -783,14 +902,11 @@ class CustomController(FlightController):
             
             # Decay epsilon
             self.epsilon = max(self.eps_min, self.epsilon * self.eps_decay)
-
-            # Store history
-            self.episode_returns.append(float(total_return))
-            self.episode_hits.append(int(ep_hits))
-            self.episode_crashes.append(int(crashed))
-            self.episode_steps.append(int(steps_taken))
-            self.episode_stage.append(int(self.stage_idx))
-
+            
+            # average steps taken to hit targets
+            avg_steps_per_hit = (float(np.mean(hit_step_counts_ep)) if hit_step_counts_ep else None)
+            med_steps_per_hit = (float(np.median(hit_step_counts_ep)) if hit_step_counts_ep else None)
+            
             # Save per-episode log (JSONL)
             if (ep + 1) % self.flush_log_every == 0:
                 q_mean = float(np.mean(self.Q))
@@ -806,6 +922,8 @@ class CustomController(FlightController):
                     "crash": int(crashed),
                     "return": float(total_return),
                     "steps": int(steps_taken),
+                    "avg_steps_per_hit": avg_steps_per_hit,
+                    "med_steps_per_hit": med_steps_per_hit,
                     "epsilon": float(self.epsilon),
                     "alpha": float(self.alpha),
                     "q_mean": q_mean,
@@ -814,11 +932,74 @@ class CustomController(FlightController):
                     "q_max": q_max,
                     "r_hit": r_sums["hit"],
                     "r_progress": r_sums["progress"],
+                    "progress_steps": progress_step_count,
                     "r_step": r_sums["step"],
                     "r_near_boundary": r_sums["near_boundary"],
                     "r_oob": r_sums["oob"],
                     "r_stagnate": r_sums["stagnate"],
                     "mean_return_per_step": total_return / max(1, steps_taken),
+                    "dx_bin_counts": dict(dx_bins),
+                    "dy_bin_counts": dict(dy_bins),
+                    "vx_bin_counts": dict(vx_bins),
+                    "vy_bin_counts": dict(vy_bins),
+                    "theta_bin_counts": dict(th_bins),
+                    "omega_bin_counts": dict(om_bins),
+                    "vx_abs_p50": float(np.percentile(np.abs(vx_vals), 50)) if vx_vals else None,
+                    "vy_abs_p50": float(np.percentile(np.abs(vy_vals), 50)) if vy_vals else None,
+                    "theta_abs_p50": float(np.percentile(np.abs(th_vals), 50)) if th_vals else None,
+                    "omega_abs_p50": float(np.percentile(np.abs(om_vals), 50)) if om_vals else None,
+                    "vx_abs_p90": float(np.percentile(np.abs(vx_vals), 90)) if vx_vals else None,
+                    "vy_abs_p90": float(np.percentile(np.abs(vy_vals), 90)) if vy_vals else None,
+                    "theta_abs_p90": float(np.percentile(np.abs(th_vals), 90)) if th_vals else None,
+                    "omega_abs_p90": float(np.percentile(np.abs(om_vals), 90)) if om_vals else None,
+                    "near_vx_abs_p90": float(np.percentile(np.abs(near_vx_vals), 90)) if near_vx_vals else None,
+                    "near_vy_abs_p90": float(np.percentile(np.abs(near_vy_vals), 90)) if near_vy_vals else None,
+                    "near_theta_abs_p90": float(np.percentile(np.abs(near_th_vals), 90)) if near_th_vals else None,
+                    "near_omega_abs_p90": float(np.percentile(np.abs(near_om_vals), 90)) if near_om_vals else None,
+                })
+                self._append_episode_csv({
+                    "ep": int(ep + 1),
+                    "stage": int(self.stage_idx),
+                    "done_reason": done_reason,
+                    "action_repeat": int(self.action_repeat),
+                    "hits": int(ep_hits),
+                    "crash": int(crashed),
+                    "return": float(total_return),
+                    "steps": int(steps_taken),
+                    "avg_steps_per_hit": avg_steps_per_hit,
+                    "med_steps_per_hit": med_steps_per_hit,
+                    "epsilon": float(self.epsilon),
+                    "alpha": float(self.alpha),
+                    "q_mean": q_mean,
+                    "q_std": q_std,
+                    "q_min": q_min,
+                    "q_max": q_max,
+                    "r_hit": r_sums["hit"],
+                    "r_progress": r_sums["progress"],
+                    "progress_steps": progress_step_count,
+                    "r_step": r_sums["step"],
+                    "r_near_boundary": r_sums["near_boundary"],
+                    "r_oob": r_sums["oob"],
+                    "r_stagnate": r_sums["stagnate"],
+                    "mean_return_per_step": total_return / max(1, steps_taken),
+                    "dx_bin_counts": dict(dx_bins),
+                    "dy_bin_counts": dict(dy_bins),
+                    "vx_bin_counts": dict(vx_bins),
+                    "vy_bin_counts": dict(vy_bins),
+                    "theta_bin_counts": dict(th_bins),
+                    "omega_bin_counts": dict(om_bins),
+                    "vx_abs_p50": float(np.percentile(np.abs(vx_vals), 50)) if vx_vals else None,
+                    "vy_abs_p50": float(np.percentile(np.abs(vy_vals), 50)) if vy_vals else None,
+                    "theta_abs_p50": float(np.percentile(np.abs(th_vals), 50)) if th_vals else None,
+                    "omega_abs_p50": float(np.percentile(np.abs(om_vals), 50)) if om_vals else None,
+                    "vx_abs_p90": float(np.percentile(np.abs(vx_vals), 90)) if vx_vals else None,
+                    "vy_abs_p90": float(np.percentile(np.abs(vy_vals), 90)) if vy_vals else None,
+                    "theta_abs_p90": float(np.percentile(np.abs(th_vals), 90)) if th_vals else None,
+                    "omega_abs_p90": float(np.percentile(np.abs(om_vals), 90)) if om_vals else None,
+                    "near_vx_abs_p90": float(np.percentile(np.abs(near_vx_vals), 90)) if near_vx_vals else None,
+                    "near_vy_abs_p90": float(np.percentile(np.abs(near_vy_vals), 90)) if near_vy_vals else None,
+                    "near_theta_abs_p90": float(np.percentile(np.abs(near_th_vals), 90)) if near_th_vals else None,
+                    "near_omega_abs_p90": float(np.percentile(np.abs(near_om_vals), 90)) if near_om_vals else None,
                 })
 
             # Save checkpoint
