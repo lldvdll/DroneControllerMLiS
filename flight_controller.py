@@ -33,7 +33,7 @@ class FlightController():
         pass
 
     @classmethod
-    def init_drone(self, mode='deterministic', num_targets=100) -> Drone:
+    def init_drone(self, mode='deterministic', num_targets=100, limits=(-0.5, 0.5)) -> Drone:
         """Creates a Drone object initialised with a deterministic set of target coordinates.
 
         Args:
@@ -51,8 +51,8 @@ class FlightController():
             drone.add_target_coordinate((-0.35, 0))
         elif mode == 'random':
             for i in range(num_targets):  # Add 100 random targets for experimentation
-                x = np.random.uniform(-0.5, 0.5)
-                y = np.random.uniform(-0.5, 0.5)
+                x = np.random.uniform(limits[0], limits[1])
+                y = np.random.uniform(limits[0], limits[1])
                 drone.add_target_coordinate((x, y))
         return drone
 

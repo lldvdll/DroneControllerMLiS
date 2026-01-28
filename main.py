@@ -8,19 +8,21 @@ from flight_controller import FlightController
 from matplotlib import pyplot as plt
 
 #---------------------WRITE YOUR OWN CODE HERE------------------------#
-# from heuristic_controller import HeuristicController
+from heuristic_controller import HeuristicController
 # from custom_controller import CustomController
 # from reinforce_1layer_controller import Reinforce1LayerController
 # from gaussian_reinforce_controller import GaussianReinforceController
 # from physics_reinforce_controller import PhysicsReinforceController
 from solution_controller import SolutionController
 from linear_reinforce_controller import LinearReinforceController
+from neural_reinforce_controller import NeuralReinforceController
+from actor_critic_controller import ActorCriticController
 
 
 def generate_controller() -> FlightController:
     # return HeuristicController() # <--- Replace this with your own written controller
-    return LinearReinforceController()
-    # return SolutionController()
+    # return ActorCriticController()
+    return NeuralReinforceController()
 
 def is_training() -> bool:
     return True # <--- Replace this with True if you want to train, false otherwise
