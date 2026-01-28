@@ -92,11 +92,9 @@ def evaluate(
     """
     # Save original settings
     old_mode = controller.target_mode
-    old_eps_eval = controller.epsilon_eval
     
     # Set evaluation mode
     controller.target_mode = eval_mode
-    controller.epsilon_eval = 0.0  # Greedy policy
     
     # Use defaults if not specified
     if dt is None:
@@ -307,7 +305,6 @@ def evaluate(
     
     # Restore original settings
     controller.target_mode = old_mode
-    controller.epsilon_eval = old_eps_eval
     
     return report
 
