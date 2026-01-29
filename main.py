@@ -9,18 +9,18 @@ from matplotlib import pyplot as plt
 
 #---------------------WRITE YOUR OWN CODE HERE------------------------#
 from heuristic_controller import HeuristicController
-# from custom_controller import CustomController
 from neural_reinforce_controller import NeuralReinforceController
-
+from custom_controller import CustomController
 
 def generate_controller() -> FlightController:
-    # return HeuristicController() # <--- Replace this with your own written controller
+    return HeuristicController() # <--- Replace this with your own written controller
+    # return CustomController()
     return NeuralReinforceController()
 
 def is_training() -> bool:
     return False # <--- Replace this with True if you want to train, false otherwise
 def is_saving() -> bool:
-    return True # <--- Replace this with True if you want to save the results of training, false otherwise
+    return False # <--- Replace this with True if you want to save the results of training, false otherwise
 
 #---------------------------------------------------------------------#
 SCREEN_WIDTH = 720
@@ -94,8 +94,7 @@ def main(controller: FlightController):
         drone.set_thrust(controller.get_thrusts(drone))
         # Update the simulation
         drone.step_simulation(delta_time)
-        
-        # Get rewards for display and plot
+                # Get rewards for display and plot
         if PLOT_REWARDS:
             try:
                 _, rewards = controller.get_reward(drone)
@@ -105,7 +104,12 @@ def main(controller: FlightController):
             except:
                 DISPLAY_REWARDS = False
                 PLOT_REWARDS = False
-            
+                
+        # Stop if all targets are completed
+        next_target = drone.get_next_target()
+        if next_target is None:
+            running = False
+            continue
 
         # --- Begin Drawing --- #
 
@@ -183,20 +187,20 @@ def plot_rewards_history(history):
         print("No reward history to plot.")
         return
 
-    # 1. Organize data
+    # Organize data
     keys = set().union(*history)
     # Filter out 'total' if your controller logs it, so we don't double count
     component_keys = [k for k in keys if k != 'total']
     steps = range(len(history))
     
-    # 2. Setup Plot
+    # Setup Plot
     fig, ax = plt.subplots(figsize=(10, 6))
     
-    # 3. Stack Calculations
+    # Stack Calculations
     pos_bottom = np.zeros(len(history))
     neg_bottom = np.zeros(len(history))
     
-    # 4. Plot Stacks
+    # Plot Stacks
     for key in component_keys:
         # Get data for this key across all steps
         values = np.array([step.get(key, 0.0) for step in history])
@@ -214,12 +218,12 @@ def plot_rewards_history(history):
         ax.fill_between(steps, neg_bottom, neg_bottom + neg_vals, color=p.get_facecolor(), alpha=0.6)
         neg_bottom += neg_vals
 
-    # 5. Plot Total Net Reward (The Black Line)
+    # Plot Total Net Reward (The Black Line)
     # This shows what the agent actually "feels" (Sum of all components)
     totals = np.array([sum(step.values()) for step in history])
     ax.plot(steps, totals, color='black', linewidth=1.5, linestyle='--', label='Net Total')
 
-    # 6. Final Polish
+    # Final Polish
     ax.set_title("Reward Evolution Over Time (Components)")
     ax.set_xlabel("Simulation Step")
     ax.set_ylabel("Reward Magnitude")
@@ -231,13 +235,10 @@ def plot_rewards_history(history):
     plt.show()
 
 if __name__ == "__main__":
-
+    
     controller = generate_controller()
-    if is_training():
-        controller.train()
-        if is_saving():
-            controller.save()        
-    else:
-        controller.load()
+    controller.target_mode = "random"
+    controller.q_path = "runs/20260128_203007/q_table.npy"
+    controller.load()
     
     main(controller)
