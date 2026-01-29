@@ -10,18 +10,11 @@ from matplotlib import pyplot as plt
 #---------------------WRITE YOUR OWN CODE HERE------------------------#
 from heuristic_controller import HeuristicController
 # from custom_controller import CustomController
-# from reinforce_1layer_controller import Reinforce1LayerController
-# from gaussian_reinforce_controller import GaussianReinforceController
-# from physics_reinforce_controller import PhysicsReinforceController
-from solution_controller import SolutionController
-from linear_reinforce_controller import LinearReinforceController
 from neural_reinforce_controller import NeuralReinforceController
-from actor_critic_controller import ActorCriticController
 
 
 def generate_controller() -> FlightController:
     # return HeuristicController() # <--- Replace this with your own written controller
-    # return ActorCriticController()
     return NeuralReinforceController()
 
 def is_training() -> bool:
@@ -33,6 +26,13 @@ def is_saving() -> bool:
 SCREEN_WIDTH = 720
 SCREEN_HEIGHT = 480
 
+# 'deterministic': the 4 fixed targets provided, 'random': generates NUM_TARGETS randomly distributed targets
+TARGET_MODE = 'random'
+NUM_TARGETS = 100
+
+# Reward diagnostics - requires controller to have a get_reward() method return a specific data structure
+PLOT_REWARDS = True  # Plot reward distribution after simulation
+DISPLAY_REWARDS = True  # Show live rewards on game screen
 
 def get_scale():
     return min(SCREEN_HEIGHT, SCREEN_WIDTH)
@@ -68,7 +68,7 @@ def main(controller: FlightController):
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     
     # Initalise the drone
-    drone = controller.init_drone(mode='random', num_targets=100)  # I've changed this so that more targets are generated randomly
+    drone = controller.init_drone(mode=TARGET_MODE, num_targets=NUM_TARGETS)  # I've changed this so that more targets are generated randomly
     
     simulation_step_counter = 0
     max_simulation_steps = controller.get_max_simulation_steps()
@@ -93,10 +93,16 @@ def main(controller: FlightController):
         drone.step_simulation(delta_time)
         
         # Get rewards for displaying
-        _, rewards = controller.get_reward(drone)
-        for k,v in rewards.items():  # Accumulate rewards for display
-            rewards_cum[k] = rewards_cum.get(k, 0) + v        
-        reward_history.append(rewards_cum.copy())  # Track reward history for final plot
+        if PLOT_REWARDS:
+            try:
+                _, rewards = controller.get_reward(drone)
+                for k,v in rewards.items():  # Accumulate rewards for display
+                    rewards_cum[k] = rewards_cum.get(k, 0) + v        
+                reward_history.append(rewards_cum.copy())  # Track reward history for final plot
+            except:
+                DISPLAY_REWARDS = False
+                PLOT_REWARDS = False
+            
 
         # --- Begin Drawing --- #
 
@@ -106,8 +112,10 @@ def main(controller: FlightController):
         draw_drone(screen, drone, drone_img)
         # Draw the next target on the screen
         draw_target(drone.get_next_target(), screen, target_img)
+        
         # Draw reward counter on the screen
-        draw_rewards(screen, font, rewards_cum)
+        if DISPLAY_REWARDS:
+            draw_rewards(screen, font, rewards_cum)
 
         # Actually displays the final frame on the screen
         pygame.display.flip()
@@ -125,7 +133,8 @@ def main(controller: FlightController):
     pygame.quit()
     
     # Plot the reward history
-    plot_rewards_history(reward_history)
+    if PLOT_REWARDS:
+        plot_rewards_history(reward_history)
 
 
 def draw_rewards(screen, font, rewards):

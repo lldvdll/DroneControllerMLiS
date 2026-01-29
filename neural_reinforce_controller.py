@@ -19,7 +19,6 @@ class ExperimentLogger:
             'lengths': [],
             'grads': [],
             'entropies': [],
-            # We now store pre-calculated stats instead of raw actions
             'action_means': [], 
             'action_stds': []
         }
@@ -28,7 +27,7 @@ class ExperimentLogger:
         self.buffer = {
             'rewards': [],
             'lengths': [],
-            'actions': [], # Will hold ALL actions taken in this batch
+            'actions': [],
             'sigmas': []
         }
         
@@ -36,7 +35,7 @@ class ExperimentLogger:
 
     def record_episode(self, rewards, states, actions, sigmas):
         """
-        episode_actions: list or array of shape (Steps, 2) containing ALL actions taken this episode
+        episode_actions: list or array of shape (Steps, 2) containing all actions taken this episode
         """
         # Aggregate episode stats
         total_reward = np.sum(rewards)
@@ -46,7 +45,7 @@ class ExperimentLogger:
         # Store
         self.buffer['rewards'].append(total_reward)
         self.buffer['lengths'].append(length)
-        self.buffer['actions'].extend(actions) # Store raw actions for batch distribution plot
+        self.buffer['actions'].extend(actions)
         self.buffer['sigmas'].append(avg_sigma) 
 
     def log_optimisation_step(self, grad_norm):
@@ -57,20 +56,18 @@ class ExperimentLogger:
         avg_reward = np.mean(self.buffer['rewards'])
         avg_length = np.mean(self.buffer['lengths'])
         
-        # Action Stats (Empirical)
-        # Convert buffer to array: Shape (Total_Batch_Steps, 2)
+        # Convert buffer to array
         all_batch_actions = np.array(self.buffer['actions'])
         
-        # Calculate empirical Mean and Std of what actually happened
-        batch_action_mean = np.mean(all_batch_actions, axis=0) # [Mean_Thrust, Mean_Roll]
-        batch_action_std = np.std(all_batch_actions, axis=0)   # [Std_Thrust, Std_Roll]
+        # Calculate empirical mean and std of what actually happened
+        batch_action_mean = np.mean(all_batch_actions, axis=0)
+        batch_action_std = np.std(all_batch_actions, axis=0)
         
-        # Entropy (Theoretical)
-        # We still use the network's sigma for the entropy plot (hidden internal state)
+        # Entropy
         avg_sigmas = np.mean(self.buffer['sigmas'], axis=0)
         avg_entropy = np.sum(np.log(avg_sigmas))
 
-        # Store to History
+        # Store to history
         self.history['rewards'].append(avg_reward)
         self.history['lengths'].append(avg_length)
         self.history['grads'].append(grad_norm)
@@ -80,7 +77,7 @@ class ExperimentLogger:
         self.history['action_means'].append(batch_action_mean)
         self.history['action_stds'].append(batch_action_std)
         
-        # Clear Buffer
+        # Clear buffer for next batch
         self.buffer = {k: [] for k in self.buffer}
         return avg_reward, avg_length
 
@@ -89,7 +86,7 @@ class ExperimentLogger:
         gs = fig.add_gridspec(2, 2)
         batches = np.arange(len(self.history['rewards']))
         
-        # --- PLOT 1: Rewards & Survival ---
+        # Rewards and survival
         ax1 = fig.add_subplot(gs[0, 0])
         ax1_right = ax1.twinx()
         
@@ -108,20 +105,20 @@ class ExperimentLogger:
         ax1.set_ylabel('Reward', color='darkblue')
         ax1.set_title("Performance")
 
-        # --- PLOT 2: Action Convergence (Empirical) ---
+        # Action convergence plot
         ax2 = fig.add_subplot(gs[0, 1])
         
         # Retrieve the pre-calculated stats
-        means = np.array(self.history['action_means']) # Shape (Batch, 2)
-        stds = np.array(self.history['action_stds'])   # Shape (Batch, 2)
+        means = np.array(self.history['action_means']) # Shape (batch, 2)
+        stds = np.array(self.history['action_stds'])   # Shape (batch, 2)
         
-        # Thrust (Index 0)
+        # Thrust
         mu_t = means[:, 0]
         std_t = stds[:, 0]
         ax2.plot(batches, mu_t, color='purple', label='Thrust Mean')
         ax2.fill_between(batches, mu_t - std_t, mu_t + std_t, color='purple', alpha=0.15)
         
-        # Roll (Index 1)
+        # Roll
         mu_r = means[:, 1]
         std_r = stds[:, 1]
         ax2.plot(batches, mu_r, color='green', label='Roll Mean')
@@ -132,13 +129,13 @@ class ExperimentLogger:
         ax2.legend()
         ax2.grid(True, alpha=0.3)
 
-        # --- PLOT 3: Entropy ---
+        # Entropy
         ax3 = fig.add_subplot(gs[1, 0])
         ax3.plot(batches, self.history['entropies'], color='teal', linewidth=2)
         ax3.set_title("Policy Entropy")
         ax3.grid(True, alpha=0.3)
         
-        # --- PLOT 4: Gradients ---
+        # Gradients
         ax4 = fig.add_subplot(gs[1, 1])
         ax4.plot(batches, self.history['grads'], color='red')
         ax4.set_title("Gradient Norm")
@@ -169,7 +166,7 @@ class Policy():
         self.W2 = np.random.randn(output_size, hidden_size) * xavier_scale2 * weight_scaling
         self.b2 = np.zeros(output_size)
         
-        # Initialise sigmas to 0.3
+        # Initialise sigmas to 0.3 ~ exp(-1.2)
         self.b2[2:] = -1.2
         
         print(f'Input size: {input_size}, Hidden size: {hidden_size}, Output size: {output_size}')
@@ -187,7 +184,6 @@ class Policy():
             s: state vector (input)
             z: pre-activation hidden layer vector
             h: post-activation hidden layer vector
-            p: action probabilities vector (output)
         """
         # Hidden layer
         z1 = state @ self.W1.T + self.b1
@@ -233,23 +229,17 @@ class Policy():
             # Re-run Forward to get intermediates
             mu, sigma, h1, z2 = self.forward(state)
             
-            # Calculate REINFORCE Error Signal
-            # "How much should we have shifted the mean?"
-            # Error = (Action_Taken - Mean_Predicted) / Variance * Return
-            grad_log_pi = (action - mu) / (sigma**2)
-            weighted_error = grad_log_pi * ret
-            
-            # Mu Gradients (Means)
-            # Eq: (Action - Mean) / Variance * Return
+            # Mu Gradients
+            # (Action - Mean) / Variance * Return
             grad_log_pi_mu = (action - mu) / (sigma**2)
             weighted_error_mu = grad_log_pi_mu * ret
             
-            # SIGMA Gradients (Variances)
+            # Sigma Gradients
             # Derived from Chapter 15 Eq 15.9: ((a - mu)^2 - sigma^2) / sigma^3
             grad_log_pi_sigma = ((action - mu)**2 - sigma**2) / (sigma**3)
             weighted_error_sigma = grad_log_pi_sigma * ret
             
-            # Output Layer Gradients (Chain Rule)
+            # Output Layer Gradients
             d_out = np.zeros(4)
             
             # Thrust (Sigmoid Derivative: sig * (1 - sig))
@@ -299,7 +289,7 @@ class NeuralReinforceController(FlightController):
         with open('neural_reinforce_config.json', 'r') as f:
             self.config = json.load(f)
         
-        # Initialise policy - 7 states in, 2 actions out
+        # Initialise policy - 7 states in, 2 actions out, but with mean and std
         hidden_size = self.config['hyperparameters']['hidden_size']
         weight_scaling = self.config['hyperparameters']['weight_scaling']
         self.policy = Policy(input_size=7, hidden_size=hidden_size, output_size=2, weight_scaling=weight_scaling)
@@ -355,7 +345,7 @@ class NeuralReinforceController(FlightController):
         Return action pair: [total_thrust, roll]
         """
         # Get the mean (mu) from the policy
-        mu, sigma, h1, z2 = self.policy.forward(state)
+        mu, sigma, _, _ = self.policy.forward(state)
         
         # Sample from Gaussian  
         if mode == 'train':
@@ -383,7 +373,7 @@ class NeuralReinforceController(FlightController):
         
         # Clip to ensure valid motor values [0, 1], since sampling during training can result in invalid values
         thrusts = (float(np.clip(left, 0.0, 1.0)), 
-                float(np.clip(right, 0.0, 1.0)))
+                   float(np.clip(right, 0.0, 1.0)))
         
         return thrusts
 
@@ -500,36 +490,6 @@ class NeuralReinforceController(FlightController):
             part = correction * cfg['y_drift']
             reward += part
             reward_log['y_drift'] = part
-        
-              
-        # # Horizontal Drift Correction (Dampening)
-        # if cfg['x_drift'] is not None:
-        #     vx = drone.velocity_x
-        #     target_x_diff = target[0] - drone.x
-        #     moving_away = np.sign(vx) != np.sign(target_x_diff)
-            
-        #     if moving_away:
-        #         # PENALTY logic: Penalize speed when moving the wrong way.
-        #         # This acts like a "soft brake" rather than a "hard steer".
-        #         part = -abs(vx) * cfg['x_drift']
-        #     else:
-        #         part = 0.0
-        #     reward += part
-        #     reward_log['x_drift'] = part
-
-        # # Vertical Drift Correction (Dampening)
-        # if cfg['y_drift'] is not None:
-        #     vy = drone.velocity_y
-        #     target_y_diff = target[1] - drone.y
-        #     moving_away = np.sign(vy) != np.sign(target_y_diff)
-            
-        #     if moving_away:
-        #         # PENALTY logic: Penalize falling/rising away from target.
-        #         part = -abs(vy) * cfg['y_drift']
-        #     else:
-        #         part = 0.0
-        #     reward += part
-        #     reward_log['y_drift'] = part
             
         # Pitch penalty
         if cfg['pitch_penalty'] is not None:
@@ -688,18 +648,23 @@ class NeuralReinforceController(FlightController):
             
             # Set curriculum
             target_mode = self.config['hyperparameters']['curriculum']
+            
+            # Target always in centre - don't use hit reward with this!
+            # Note: this isn't active, target (0, 0) needs to be hardcoded so they don't run out  
             if target_mode == 'hover':
-                # Note: this isn't active, target (0, 0) needs to be hardcoded so they don't run out  
-                # TODO: Implement properly, most likely in drone initialisation
-                limits = (0.0, 0.0) # Target always in centre - don't use hit reward with this!
+                limits = (0.0, 0.0) 
+                
+            # Target distance increases over episodes
             elif target_mode == 'increasing':
                 curriculum_max_episodes = self.config['hyperparameters']['curriculum_max_episodes']
-                difficulty = min(1.0, episode / curriculum_max_episodes)  # Target distance increases over episodes
+                difficulty = min(1.0, episode / curriculum_max_episodes)  
                 limit = max(0.1*2, difficulty/2)  # min distance of target size*2, so it's not just sitting on them
                 limits = (-limit, limit)
                 difficulty = self.run_episode(limits=limits)
+                
+            # Target location is always random - the objective
             elif target_mode == 'random':
-                limits = (-0.5, 0.5)  # Target location is always random - the objective
+                limits = (-0.5, 0.5)  
              
             # Run episode
             states, actions, sigmas, rewards, reward_logs = self.run_episode(limits=limits)
@@ -751,24 +716,6 @@ class NeuralReinforceController(FlightController):
         # Plot results
         self.logger.plot_diagnostics()
 
-    def update_policy(self, states, actions, rewards):
-        """
-        Update policy weights 
-            Get returns
-            Update policy
-        """
-        returns = self.get_returns(rewards)
-        
-        states = np.array(states)
-        actions = np.array(actions)
-        returns = np.array(returns)
-        
-        self.policy.backward(
-            states, 
-            actions, 
-            returns,
-            self.config['hyperparameters']['learning_rate']
-        )
 
     def save(self, best=False):
         # Choose best or latest save
