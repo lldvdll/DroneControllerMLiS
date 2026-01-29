@@ -50,6 +50,9 @@ def convert_to_game_coordinates(x,y):
     return ((x - SCREEN_WIDTH/2)/scale, (y - SCREEN_HEIGHT/2)/scale)
 
 def main(controller: FlightController):
+    
+    global PLOT_REWARDS
+    global DISPLAY_REWARDS
 
     # Initialise pygame
     pygame.init()
@@ -92,7 +95,7 @@ def main(controller: FlightController):
         # Update the simulation
         drone.step_simulation(delta_time)
         
-        # Get rewards for displaying
+        # Get rewards for display and plot
         if PLOT_REWARDS:
             try:
                 _, rewards = controller.get_reward(drone)
