@@ -10,17 +10,17 @@ from matplotlib import pyplot as plt
 #---------------------WRITE YOUR OWN CODE HERE------------------------#
 from heuristic_controller import HeuristicController
 from neural_reinforce_controller import NeuralReinforceController
-from custom_controller import CustomController
+# from custom_controller import CustomController
 
 def generate_controller() -> FlightController:
-    return HeuristicController() # <--- Replace this with your own written controller
+    # return HeuristicController() # <--- Replace this with your own written controller
     # return CustomController()
     return NeuralReinforceController()
 
 def is_training() -> bool:
-    return False # <--- Replace this with True if you want to train, false otherwise
+    return True # <--- Replace this with True if you want to train, false otherwise
 def is_saving() -> bool:
-    return False # <--- Replace this with True if you want to save the results of training, false otherwise
+    return True # <--- Replace this with True if you want to save the results of training, false otherwise
 
 #---------------------------------------------------------------------#
 SCREEN_WIDTH = 720
@@ -234,11 +234,23 @@ def plot_rewards_history(history):
     plt.tight_layout()
     plt.show()
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
     
+#     controller = generate_controller()
+#     controller.target_mode = "random"
+#     controller.q_path = "runs/20260128_203007/q_table.npy"
+#     controller.load()
+    
+#     main(controller)
+
+if __name__ == "__main__":
+
     controller = generate_controller()
-    controller.target_mode = "random"
-    controller.q_path = "runs/20260128_203007/q_table.npy"
-    controller.load()
+    if is_training():
+        controller.train()
+        if is_saving():
+            controller.save()        
+    else:
+        controller.load()
     
     main(controller)
