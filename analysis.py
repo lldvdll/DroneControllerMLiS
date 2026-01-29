@@ -4,7 +4,7 @@ Reads JSONL produced during training and generates diagnostic plots.
 Expected JSONL keys:
   ep, stage, hits, crash, return, steps,
   epsilon, alpha,
-  r_hit, r_progress, r_step, r_near_boundary, r_oob,r_stagnate
+  r_hit, r_progress, r_step, r_near_boundary, r_oob
   done_reason ("crash"/"max_steps"/"success"/etc.)
 """
 from __future__ import annotations
@@ -258,28 +258,6 @@ def _plot_done_reason_over_time(cols: Dict[str, np.ndarray], out_path: Path, win
     plt.savefig(out_path, dpi=150)
     plt.close(fig)
 
-
-def _plot_return_vs_hits_box(cols: Dict[str, np.ndarray], out_path: Path) -> None:
-    ret = cols.get("return", np.array([]))
-    hits = cols.get("hits", np.array([]))
-    if ret.size == 0 or hits.size == 0:
-        return
-
-    hit_int = np.asarray(np.round(hits), dtype=int)
-    uniq = np.unique(hit_int)
-    data = [ret[hit_int == h] for h in uniq]
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.boxplot(data, labels=[str(h) for h in uniq], showfliers=False)
-    ax.set_title("Return distribution by Hits (boxplot)")
-    ax.set_xlabel("Hits")
-    ax.set_ylabel("Return")
-    ax.grid(alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=150)
-    plt.close(fig)
-
-
 def _plot_reward_share_100pct(cols: Dict[str, np.ndarray], out_path: Path, block: int) -> None:
     # only if r_* exists
     needed = ["r_hit", "r_progress", "r_step", "r_near_boundary", "r_oob"]
@@ -388,7 +366,6 @@ def run_analysis(
     _plot_return_hits(cols, out_dir / "rolling_mean_return_hits.png", window)
     _plot_crash_steps(cols, out_dir / "crash_and_steps.png", window)
     _plot_done_reason_over_time(cols, out_dir / "done_reason_over_time.png", window)
-    # _plot_return_vs_hits_box(cols, out_dir / "return_vs_hits_box.png")
     _plot_reward_share_100pct(cols, out_dir / f"reward_decomp_share_100_block{share_block}.png", share_block)
     _plot_reward_zscore(cols, out_dir / "reward_decomp_zscore.png", window)
 

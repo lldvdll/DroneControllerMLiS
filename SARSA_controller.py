@@ -64,11 +64,11 @@ class CustomController(FlightController):
 
         # Discretisation thresholds
         self.dx1, self.dx2, self.dx3 = 0.105, 0.3, 0.45
-        self.dy1, self.dy2, self.dy3 = 0.105, 0.2, 0.3
-        self.vx0 = 0.15
-        self.vy0 = 0.06
-        self.theta0 = 0.18 # for pitch
-        self.omega0 = 0.15 # for pitch_velocity
+        self.dy1, self.dy2, self.dy3 = 0.05, 0.2, 0.3
+        self.vx0 = 0.05
+        self.vy0 = 0.03
+        self.theta0 = 0.1 # for pitch
+        self.omega0 = 0.1 # for pitch_velocity
 
         # danger threshold: min distance to any wall
         self.b0 = 0.1
@@ -80,12 +80,12 @@ class CustomController(FlightController):
         # Reward parameters
         self.R_hit = 500.0
         # self.R_progress = 0.5
-        self.k_progress = 50.0
+        self.k_progress = 150.0
         self.k_backwards = 0.0
         self.progress_clip = 0.05
         self.boundary_penalty = 300.0 # terminate penalty if out-of-bounds
         self.near_boundary_penalty_scale = 0.30  # shaping weight near boundary
-        self.c_step = 0.002
+        self.c_step = 0.01
 
         # default parameters
         self.n_states = 7938
@@ -138,8 +138,8 @@ class CustomController(FlightController):
                 "n": 5,
                 "target_bounds": self.full_bounds, 
                 "max_steps": 3500,
-                "alpha": 0.05,
-                "eps_start": 0.4,
+                "alpha": 0.1,
+                "eps_start": 0.6,
                 "eps_decay": 0.999,
                 "eps_min": 0.05,
                 "action_repeat": 3,
@@ -388,25 +388,9 @@ class CustomController(FlightController):
         # Hover at current altitude with pitch stabilisation
         u0 = 0.5
         k_theta = 0.6
-        k_omega = 0.25
+        k_omega = 0.45 # was 0.25
         tau = -k_theta * float(drone.pitch) - k_omega * float(drone.pitch_velocity)
         return self._thrust_from_u_tau(u0, tau)
-
-    # def _h_tilt_left(self, drone: Drone) -> Tuple[float, float]:
-        # Tilt left by applying negative torque, with angular damping.
-        # u0 = 0.52  # 0.5 -> 0.52
-        # tau_cmd = -0.18
-        # k_omega = 0.2  # 0.15 -> 0.2
-        # tau = tau_cmd - k_omega * float(drone.pitch_velocity)
-        # return self._thrust_from_u_tau(u0, tau)
-
-    # def _h_tilt_right(self, drone: Drone) -> Tuple[float, float]:
-        # Tilt right by applying positive torque, with angular damping.
-        # u0 = 0.52  # 0.5 -> 0.52
-        # tau_cmd = +0.18
-        # k_omega = 0.2  # 0.15 -> 0.2
-        # tau = tau_cmd - k_omega * float(drone.pitch_velocity)
-        # return self._thrust_from_u_tau(u0, tau)
     
     def _h_tilt_left(self, drone: Drone) -> Tuple[float, float]:
         curr_dist = self._distance_to_target(drone)
@@ -416,21 +400,20 @@ class CustomController(FlightController):
         dy = ty - drone.y
         
         # Target a bank angle of ~16 degrees (0.28 radians) - This is steep enough to move fast, but safe from flipping.
-        target_pitch = -0.28
+        target_pitch = -0.35
         
-        # Boost thrust slightly to maintain altitude - cos(0.28) is ~0.96. So u0=0.52 compensates for gravity (1.0).
-        # 1. Target Above: Climb (0.52 -> 0.58)
+        # 1. Target Above: Climb (0.58 -> 0.64)
         if dy > 0.05 :
-            u0 = 0.52 + (0.06 * scale)
-        # 2. Target Below: Dive (0.52 -> 0.46)
+            u0 = 0.58 + (0.06 * scale)
+        # 2. Target Below: Dive (0.48 -> 0.42)
         elif dy < -0.05:
-            u0 = 0.52 - (0.06 * scale)
+            u0 = 0.48 - (0.06 * scale)
         else:
-            u0 = 0.52
+            u0 = 0.53
         
-        # high k_theta, low k_omega when far away; low k_theta, high k_omega when close
-        k_theta = 0.4 + 0.4 * scale    # [0.4 → 0.8]
-        k_omega = 0.3  - 0.1  * scale    # [0.3  → 0.2]
+        # high k_theta, k_omega when far away; low k_theta, k_omega when close
+        k_theta = 0.6 + 0.2 * scale   # [0.4 → 0.8] to [0.6 → 0.8]
+        k_omega = 0.45 + 0.15 * scale    # [0.4  → 0.65] to [0.45  → 0.6] 
         
         # Error = Current - Target
         pitch_error = float(drone.pitch) - target_pitch
@@ -446,20 +429,20 @@ class CustomController(FlightController):
         tx, ty = drone.get_next_target()
         dy = ty - drone.y
         
-        target_pitch = 0.28
+        target_pitch = 0.35
         
-        # 1. Target Above: Climb (0.52 -> 0.58)
+        # 1. Target Above: Climb (0.58 -> 0.64)
         if dy > 0.05 :
-            u0 = 0.52 + (0.06 * scale)
-        # 2. Target Below: Dive (0.52 -> 0.46)
+            u0 = 0.58 + (0.06 * scale)
+        # 2. Target Below: Dive (0.48 -> 0.42)
         elif dy < -0.05:
-            u0 = 0.52 - (0.06 * scale)
+            u0 = 0.48 - (0.06 * scale)
         else:
-            u0 = 0.52
-        
+            u0 = 0.53
+            
         # high k_theta, low k_omega when far away; low k_theta, high k_omega when close
-        k_theta = 0.4 + 0.4 * scale   # [0.4 → 0.8]
-        k_omega = 0.3  - 0.1  * scale    # [0.3  → 0.2]
+        k_theta = 0.6 + 0.2 * scale   # [0.4 → 0.8] to [0.6 → 0.8]
+        k_omega = 0.45 + 0.15 * scale    # [0.4  → 0.65] to [0.45  → 0.6] 
 
         pitch_error = float(drone.pitch) - target_pitch
         tau = -k_theta * pitch_error - k_omega * float(drone.pitch_velocity)
@@ -470,7 +453,7 @@ class CustomController(FlightController):
         # increase total thrust, keep level
         u0 = 0.62
         k_theta = 0.6
-        k_omega = 0.25
+        k_omega = 0.45  # was 0.25
         tau = -k_theta * float(drone.pitch) - k_omega * float(drone.pitch_velocity)
         return self._thrust_from_u_tau(u0, tau)
 
@@ -478,27 +461,44 @@ class CustomController(FlightController):
         # decrease total thrust, keep level
         u0 = 0.38
         k_theta = 0.6
-        k_omega = 0.25
+        k_omega = 0.45  # was 0.25
         tau = -k_theta * float(drone.pitch) - k_omega * float(drone.pitch_velocity)
         return self._thrust_from_u_tau(u0, tau)
 
     def _h_arrest_motion(self, drone: Drone) -> Tuple[float, float]:
         # Actively damp both linear and angular motion.
-        u0 = 0.5
-
-        # vertical damping
-        k_vy = 0.1  # 0.1 -> 0.15
-        u = u0 - k_vy * float(drone.velocity_y)
+        # horizontal and vertical velocity
+        vx = float(drone.velocity_x)
+        vy = float(drone.velocity_y)
+        
+        # Calculate distance to target (for Position Hold)
+        tx, ty = drone.get_next_target()
+        dx = tx - drone.x
 
         # Horizontal damping via pitch control
-        vx = float(drone.velocity_x)
-        k_theta_vx = 0.6
-        theta_des = float(np.clip(-k_theta_vx * vx, -0.35, 0.35))  # +/- 20 deg
+        # --- LOW SPEED: POSITION HOLD (The Magnet) ---
+        # If speed < 0.15, use dx to center the drone.
+        if abs(vx) < 0.15:
+            # Gentle nudge towards target
+            # Max tilt 0.10 rad (5 degrees) so it doesn't fight too hard
+            target_pitch = float(np.clip(0.6 * dx, -0.15, 0.15))
+            u0 = 0.50  # Hover Thrust
+        # --- HIGH SPEED: ANCHOR BRAKE (The Safety) ---
+        # If speed > 0.15, ignore position, just stop the car.
+        else:
+            k_theta_vx = 0.8
+            target_pitch = float(np.clip(-k_theta_vx * vx, -0.35, 0.35))  # +/- 20 degree
+            u0 = 0.53
 
-        # PD on (theta - theta_des)
-        k_theta = 0.9
-        k_omega = 0.35  
-        tau = -k_theta * (float(drone.pitch) - theta_des) - k_omega * float(drone.pitch_velocity)
+        # vertical damping
+        k_vy = 0.1
+        u = u0 - k_vy * vy
+
+        # PD controller
+        k_theta = 0.7 # was 0.9
+        k_omega = 0.5 # was 0.35
+        pitch_error = float(drone.pitch) - target_pitch
+        tau = -k_theta * pitch_error - k_omega * float(drone.pitch_velocity)
 
         return self._thrust_from_u_tau(u, tau)
 

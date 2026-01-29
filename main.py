@@ -246,11 +246,16 @@ def plot_rewards_history(history):
 if __name__ == "__main__":
 
     controller = generate_controller()
-    if is_training():
-        controller.train()
-        if is_saving():
-            controller.save()        
-    else:
+    try:
+        controller.target_mode = "random"
+        controller.q_path = "runs/20260128_203007/q_table.npy"
         controller.load()
+    except:
+        if is_training():
+            controller.train()
+            if is_saving():
+                controller.save()        
+        else:
+            controller.load()
     
     main(controller)
