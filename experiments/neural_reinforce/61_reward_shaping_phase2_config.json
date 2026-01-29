@@ -1,0 +1,33 @@
+{
+    "experiment_name": "61_reward_shaping_phase2",
+    "load": "latest",
+    "continue_training": "60_reward_shaping_phase1",
+    "hyperparameters": {
+        "gamma": 0.6,
+        "learning_rate": 0.05,
+        "n_episodes": 1000,
+        "max_steps": 2000,
+        "batch_size": 10,
+        "hidden_size": 32,
+        "weight_scaling": 1.0,
+        "baseline_mode": "mean",
+        "safe_zone": 2.0,
+        "curriculum": "random",
+        "curriculum_max_episodes": 1000
+    },
+    "rewards": {
+        "hit_bonus": 100,
+        "distance_weight": null,
+        "delta_distance": 200,
+        "delta_direction": null,
+        "pitch_penalty": 0.1,
+        "spin_penalty": 0.05,
+        "crash_penalty": 1000.0,
+        "dx_penalty": null,
+        "velocity_alignment": 5.0,
+        "x_drift": 10,
+        "y_drift": 10
+    },
+    "hit_slow": true,
+    "target_mode": "random"
+}

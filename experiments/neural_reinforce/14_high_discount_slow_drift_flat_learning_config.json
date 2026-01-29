@@ -1,0 +1,26 @@
+{
+    "experiment_name": "dummy",
+    "hyperparameters": {
+        "gamma": 0.999,
+        "sigma": 0.3,
+        "learning_rate": 0.1,
+        "n_episodes": 2000,
+        "max_steps": 1000,
+        "batch_size": 10,
+        "hidden_size": 32,
+        "baseline_mode": "mean",
+        "safe_zone": 2.0,
+        "difficulty_curriculum": false,
+        "curriculum_max_episodes": 4000
+    },
+    "rewards": {
+        "hit_bonus": null,
+        "distance_weight": 1.0,
+        "delta_distance": null,
+        "pitch_penalty": null,
+        "spin_penalty": null,
+        "crash_penalty": 100.0,
+        "dx_penalty": null
+    },
+    "hit_slow": true
+}

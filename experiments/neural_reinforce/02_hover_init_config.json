@@ -1,0 +1,26 @@
+{
+    "experiment_name": "02_+sigma_-learning_rate",
+    "hyperparameters": {
+        "gamma": 0.95,
+        "sigma": 0.3,
+        "learning_rate": 0.01,
+        "n_episodes": 1000,
+        "max_steps": 1000,
+        "batch_size": 20,
+        "hidden_size": 32,
+        "baseline_mode": "mean",
+        "safe_zone": 2.0,
+        "difficulty_curriculum": true,
+        "curriculum_max_episodes": 4000
+    },
+    "rewards": {
+        "hit_bonus": 100.0,
+        "distance_weight": 1.0,
+        "delta_distance": null,
+        "pitch_penalty": null,
+        "spin_penalty": null,
+        "crash_penalty": 100.0,
+        "dx_penalty": null
+    },
+    "hit_slow": true
+}

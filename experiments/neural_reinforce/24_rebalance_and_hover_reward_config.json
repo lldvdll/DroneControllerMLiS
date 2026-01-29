@@ -1,0 +1,28 @@
+{
+    "experiment_name": "24_rebalance_and_hover_reward",
+    "hyperparameters": {
+        "gamma": 0.2,
+        "sigma": 0.3,
+        "learning_rate": 0.03,
+        "n_episodes": 2000,
+        "max_steps": 1000,
+        "batch_size": 10,
+        "hidden_size": 32,
+        "baseline_mode": "mean",
+        "safe_zone": 2.0,
+        "curriculum": "hover",
+        "curriculum_max_episodes": 4000
+    },
+    "rewards": {
+        "hit_bonus": null,
+        "distance_weight": null,
+        "delta_distance": null,
+        "delta_direction": 0.1,
+        "pitch_penalty": null,
+        "spin_penalty": null,
+        "crash_penalty": 100.0,
+        "dx_penalty": null
+    },
+    "hit_slow": true,
+    "target_mode": "hover"
+}

@@ -1,0 +1,32 @@
+{
+    "experiment_name": "47_increase_ydrift",
+    "load": "latest",
+    "hyperparameters": {
+        "gamma": 0.9,
+        "learning_rate": 0.03,
+        "n_episodes": 2000,
+        "max_steps": 1000,
+        "batch_size": 10,
+        "hidden_size": 32,
+        "weight_scaling": 1.0,
+        "baseline_mode": "mean",
+        "safe_zone": 2.0,
+        "curriculum": "random",
+        "curriculum_max_episodes": 4000
+    },
+    "rewards": {
+        "hit_bonus": 100,
+        "distance_weight": 0.1,
+        "delta_distance": null,
+        "delta_direction": null,
+        "pitch_penalty": null,
+        "spin_penalty": null,
+        "crash_penalty": 500.0,
+        "dx_penalty": null,
+        "velocity_alignment": 5.0,
+        "x_drift": 5.0,
+        "y_drift": 0.5
+    },
+    "hit_slow": true,
+    "target_mode": "random"
+}
