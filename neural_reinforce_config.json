@@ -1,18 +1,18 @@
 {
-  "experiment_name": "62_reward_shaping_phase2_2",
+  "experiment_name": "65_longer_controlled_phase3",
   "load": "latest",
-  "continue_training": "60_reward_shaping_phase1",
+  "continue_training": "63_increase_gamma",
   "hyperparameters": {
-    "gamma": 0.6, 
-    "learning_rate": 0.05,
-    "n_episodes": 1000,
+    "gamma": 0.99, 
+    "learning_rate": 0.03,
+    "n_episodes": 3000,
     "max_steps": 1000,
     "batch_size": 10,
     "hidden_size": 32,
     "weight_scaling": 1.0,
     "baseline_mode": "mean",
     "safe_zone": 2.0,
-    "curriculum": "increasing", 
+    "curriculum": "random", 
     "curriculum_max_episodes": 1000
   },
   "rewards": {
@@ -20,14 +20,16 @@
     "distance_weight": null,
     "delta_distance": 100,
     "delta_direction": null,
-    "pitch_penalty": 1.0,
-    "spin_penalty": 0.5,
+    "pitch_penalty": null,
+    "spin_penalty": null,
     "crash_penalty": 1000.0,
     "dx_penalty": null,
-    "velocity_alignment": 5.0,
+    "velocity_alignment": 10.0,
     "x_drift": 1,
-    "y_drift": 1
+    "y_drift": 5
   },
+  "penalty_only_drift": true,
+  "hit_fast": true,
   "hit_slow": true,
   "target_mode": "random"
 }

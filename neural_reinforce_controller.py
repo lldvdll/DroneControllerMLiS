@@ -385,7 +385,7 @@ class NeuralReinforceController(FlightController):
         action, _ = self.get_action(state, mode='test')
         return self.convert_action_to_thrust(action)
 
-    def get_reward(self, drone: Drone):
+    def get_reward(self, drone: Drone, n_steps=1000):
         """
         Calculate rewards for the episode
         TODO: Turn this into a class! To manage previous states, store logs, initialise based on config, and clean things up
@@ -467,8 +467,9 @@ class NeuralReinforceController(FlightController):
             #     correction = 0.0
             roll = self.last_action[1]
             correction = -(vx * roll)  # e.g. vx<0 and roll>0, moving left and rolling right, so signs reverse for correction
-            # if correction > 0:
-            #     correction = 0
+            if self.config['penalty_only_drift']:
+                if correction > 0:
+                    correction = 0
             part = correction * cfg['x_drift']
             reward += part
             reward_log['x_drift'] = part
@@ -485,8 +486,9 @@ class NeuralReinforceController(FlightController):
             #     correction = 0.0
             gravity_adjusted_thrust = self.last_action[0] - 0.5
             correction = -(vy * gravity_adjusted_thrust)  # e.g. vy<0 and thrust>1, moving down and thrusting up, so signs reverse for correction
-            # if correction > 0:
-            #     correction = 0
+            if self.config['penalty_only_drift']:
+                if correction > 0:
+                    correction = 0
             part = correction * cfg['y_drift']
             reward += part
             reward_log['y_drift'] = part
@@ -501,11 +503,17 @@ class NeuralReinforceController(FlightController):
         if cfg['hit_bonus'] is not None:
             if drone.has_reached_target_last_update:
                 part = cfg['hit_bonus']
+                # Slow at target.
                 # Modulator: 1.0 if stopped, 0.0 if speed > 1.0
                 if self.config['hit_slow']:
                     speed = np.linalg.norm([drone.velocity_x, drone.velocity_y])  
                     stability = max(0.0, 1.0 - speed) 
                     part *= stability
+                # Encourage speed. A hit is better if it's fast. 
+                # 1000 is a reasonable step count baseline.
+                if self.config['hit_fast']:
+                    speed = 1000 / n_steps  
+                    part *= speed
                 reward += part
                 reward_log['hit_bonus'] = part
                 

@@ -28,6 +28,8 @@
         "x_drift": 10,
         "y_drift": 10
     },
+    "penalty_only_drift": false,
+    "hit_fast": false,
     "hit_slow": true,
     "target_mode": "random"
 }
