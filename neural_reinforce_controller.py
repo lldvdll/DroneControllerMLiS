@@ -1,6 +1,7 @@
 import numpy as np
 import json
 from flight_controller import FlightController
+from SARSA_controller import CustomController as SARSAController
 from drone import Drone
 import matplotlib.pyplot as plt
 import os
@@ -283,10 +284,18 @@ class Policy():
         return total_norm
 
 class NeuralReinforceController(FlightController):
-    def __init__(self):
-                
+    def __init__(self, config_file='neural_reinforce_config.json'):
+        
+        # Additional attributes for evaluation script - hacky fix
+        self.target_mode = "random"  # "fixed", "random"
+        self.n_targets_random = 5
+        self.full_bounds = (-0.75, 0.75, -0.5, 0.5)  # xmin, xmax, ymin, ymax
+        self.min_separation = 0.20 # min distance between targets
+        self.min_from_origin = 0.15 # min distance from origin (0,0)
+        self.min_from_bounds = 0.1  # min distance from bounds
+        
         # Load config
-        with open('neural_reinforce_config.json', 'r') as f:
+        with open(config_file, 'r') as f:
             self.config = json.load(f)
         
         # Initialise policy - 7 states in, 2 actions out, but with mean and std
@@ -307,6 +316,19 @@ class NeuralReinforceController(FlightController):
         self.prev_velocity = np.zeros(2) 
         self.last_action = np.zeros(2)
         self.last_action_sigma = np.zeros(2)
+        
+        # Initialise alternative model for value baseline
+        if self.config['hyperparameters'].get('baseline_mode') == 'sarsa':
+            model = SARSAController()
+            # Construct path relative to this script
+            path = os.path.join(os.path.dirname(__file__), 
+                                self.config['hyperparameters']['baseline_path'])
+            model.target_mode = "random"
+            model.q_path = path
+            model.load()
+            self.value_model = model
+        else:
+            self.value_model = None
         
     def get_max_simulation_steps(self):
             return 5000 
@@ -581,6 +603,19 @@ class NeuralReinforceController(FlightController):
         return returns
     
     
+    def calculate_advantages(self, returns, baselines):
+        
+        # Calculate advantage: G_t - V(s)
+        returns = np.array(returns)
+        baselines = np.array(baselines)
+        advantages = returns - baselines
+            
+        # Normalize advantage for numerical stability
+        if advantages.std() > 1e-8:  # Avoid division by zero
+            return(advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        else:
+            return advantages
+    
     def run_episode(self, limits=(-0.5, 0.5)):
         
         # Init drone with increasingly distant random targets
@@ -600,10 +635,24 @@ class NeuralReinforceController(FlightController):
         actions = []
         sigmas = []
         rewards = []
-        reward_logs = []        
+        reward_logs = []
+        baselines = []   
         
         # Step through episode
         for step in range(self.config['hyperparameters']['max_steps']):
+            
+            # Get value baseline
+            if self.value_model is not None:
+                # Get state - discretised, so different to REINFORCE
+                self.value_model.get_state_tuple(drone) 
+                # Get Q values
+                sid = self.value_model.last_state_id
+                q_values = self.value_model.Q[sid]
+                # Approcximate value of state as V(s) = max Q(s, a)
+                value = np.max(q_values)
+                baselines.append(value)
+            else:
+                baselines.append(0.0)
             
             # Get states and actions
             state = self.get_state(drone)
@@ -630,7 +679,7 @@ class NeuralReinforceController(FlightController):
                 if abs(drone.x) > limit or abs(drone.y) > limit:
                     break
             
-        return states, actions, sigmas, rewards, reward_logs
+        return states, actions, sigmas, rewards, reward_logs, baselines
         
 
     def train(self):
@@ -675,7 +724,7 @@ class NeuralReinforceController(FlightController):
                 limits = (-0.5, 0.5)  
              
             # Run episode
-            states, actions, sigmas, rewards, reward_logs = self.run_episode(limits=limits)
+            states, actions, sigmas, rewards, reward_logs, baselines = self.run_episode(limits=limits)
             
             # Log episode
             self.logger.record_episode(rewards, states, actions, sigmas)
@@ -699,16 +748,24 @@ class NeuralReinforceController(FlightController):
                 batch_actions = actions
                 batch_all_returns = returns
                 batch_rewards = np.sum(rewards)
+                batch_baselines = baselines
                 
             else:  # Continue batch - note also accumulates at end of batch
                 batch_states.extend(states)
                 batch_actions.extend(actions)
                 batch_all_returns.extend(returns)
                 batch_rewards += np.sum(rewards)
+                batch_baselines.extend(baselines)
                 
             # End of batch: Normalise returns, update policy, and log
             if (episode + 1) % batch_size == 0:
-                returns_norm = self.normalise_returns(batch_all_returns)
+                
+                baseline_mode = self.config['hyperparameters']['baseline_mode']
+                if baseline_mode in ['mean', 'zero']:
+                    returns_norm = self.normalise_returns(batch_all_returns)
+                elif baseline_mode in ['sarsa']:
+                    returns_norm = self.calculate_advantages(batch_rewards, batch_baselines)
+                
                 grad_norm = self.policy.backward(  
                     batch_states, 
                     batch_actions, 
@@ -743,14 +800,23 @@ class NeuralReinforceController(FlightController):
             json.dump(self.config, f, indent=4)
         print("Weights saved.")
 
-    def load(self, filename=None):
+    def load(self, filename=None, mode=None):
+        
+        # Decide which weights to load
+        if mode is None:
+            mode = self.config['load']
+        if mode == 'best':
+            ext = '_weights_best.npz'
+        elif mode == 'latest':
+            ext = '_weights.npz'
+        
+        # Create path to weights file
         if filename is None:
-            if self.config['load'] == 'best':
-                path = os.path.join(BASE_PATH, self.config['experiment_name']+'_weights_best.npz')
-            elif self.config['load'] == 'latest':
-                path = os.path.join(BASE_PATH, self.config['experiment_name']+'_weights.npz')
+            path = os.path.join(BASE_PATH, self.config['experiment_name'] + ext)
         else:
-            path = os.path.join(BASE_PATH, filename+'_weights.npz')
+            path = os.path.join(BASE_PATH, filename + ext)
+            
+        # Load weights and overwrite policy
         try:
             data = np.load(path)
             self.policy.W1 = data['W1']
