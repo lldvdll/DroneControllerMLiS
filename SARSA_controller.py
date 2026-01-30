@@ -991,7 +991,11 @@ class CustomController(FlightController):
         except Exception as e:
             print(f"[save] failed: {e}")
 
-    def load(self):
+    def load(self, q_path=None, target_mode=None):
+        if target_mode is not None:
+            self.target_mode = target_mode
+        if q_path is not None:
+            self.q_path = q_path
         try:
             if os.path.exists(self.q_path):
                 arr = np.load(self.q_path)
