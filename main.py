@@ -117,7 +117,8 @@ if __name__ == "__main__":
     
     controller = generate_controller()
     controller.target_mode = "random"
-    controller.q_path = "runs/20260129_140127/q_table.npy"
+    controller.q_path = "runs/20260129_210910/q_table.npy"
     controller.load()
     
     main(controller)
+    

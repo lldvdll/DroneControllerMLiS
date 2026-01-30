@@ -8,14 +8,12 @@ Expected JSONL keys:
   done_reason ("crash"/"max_steps"/"success"/etc.)
 """
 from __future__ import annotations
-
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
-
 
 # ----------------------------
 # IO
@@ -68,7 +66,7 @@ def _to_cols(rows: List[Dict[str, Any]]) -> Dict[str, np.ndarray]:
 
 
 # ----------------------------
-# Rolling helpers (no pandas)
+# Rolling helpers
 # ----------------------------
 def _rolling_mean(x: np.ndarray, w: int) -> np.ndarray:
     x = np.asarray(x, dtype=float)
