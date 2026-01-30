@@ -1,11 +1,11 @@
-# python3 heuristic_eval.py
+# python3 SARSA_eval.py
 from evaluation import evaluate, save_report
-from heuristic_controller import HeuristicController
+from SARSA_controller import CustomController
 
 def main():
-    ctrl = HeuristicController()
-
-    dt = 0.01
+    ctrl = CustomController()
+    ctrl.q_path = "runs/20260129_115824/q_table.npy"
+    ctrl.load()
 
     # FIXED targets evaluation
     rep_fixed = evaluate(
@@ -13,11 +13,11 @@ def main():
         eval_mode="fixed",
         n_episodes=50,
         seed=42,
-        max_steps= 5000,
+        max_steps=3000,
         bounds=ctrl.full_bounds,
-        dt=dt,
+        dt=ctrl.dt,
     )
-    save_report(rep_fixed, "heuristic_eval_fixed_50ep_5000.json")
+    save_report(rep_fixed, "Model_20260129_115824_eval_fixed_50ep_3000.json")
 
     # RANDOM targets evaluation
     rep_random = evaluate(
@@ -25,11 +25,11 @@ def main():
         eval_mode="random",
         n_episodes=50,
         seed=43,
-        max_steps= 5000,
+        max_steps=3000,
         bounds=ctrl.full_bounds,
-        dt=dt,
+        dt=ctrl.dt,
     )
-    save_report(rep_random, "heuristic_eval_random_50ep_5000.json")
+    save_report(rep_random, "Model_20260129_115824_eval_random_50ep_3000.json")
 
 if __name__ == "__main__":
     main()

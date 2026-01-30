@@ -19,13 +19,12 @@ SARSA (on-policy) Drone Flight Controller
         5 ARREST_MOTION
     - Reward:
         +R_hit when a target is reached
-        progress shaping based on normalised distance improvement
-        -near_boundary_penalty when close to walls
-        -boundary_penalty on out-of-bounds termination
+        progress shaping based on distance improvement
+        near_boundary_penalty when close to walls
+        boundary_penalty on out-of-bounds termination
     - Training:
-        performance-based curriculum (upgrade stage based on rolling avg hits/returns)
+        performance-based curriculum (upgrade stage based on rolling avg hits)
         action_repeat (hold macro-action for several simulator steps)
-        stagnation early-stop (terminate when not improving)
     """
 import numpy as np
 import os
@@ -59,7 +58,7 @@ class CustomController(FlightController):
         self.min_from_bounds = 0.1  # min distance from bounds
 
         # Simulation settings
-        self.max_steps = 5000
+        self.max_steps = 3500
         self.dt = 0.01
 
         # Discretisation thresholds
@@ -71,36 +70,33 @@ class CustomController(FlightController):
         self.omega0 = 0.1 # for pitch_velocity
 
         # danger threshold: min distance to any wall
-        self.b0 = 0.1
+        self.b0 = 0.10
 
         # State tracking
         self.last_state_tuple = None
         self.last_state_id = None
 
         # Reward parameters
-        self.R_hit = 500.0
-        # self.R_progress = 0.5
-        self.k_progress = 150.0
-        self.k_backwards = 0.0
-        self.progress_clip = 0.05
-        self.boundary_penalty = 300.0 # terminate penalty if out-of-bounds
-        self.near_boundary_penalty_scale = 0.30  # shaping weight near boundary
-        self.c_step = 0.01
+        self.R_hit = 500.0 # hit target reward
+        self.k_progress = 150.0 # progress shaping weight
+        self.boundary_penalty = 1500.0 # terminate penalty if out-of-bounds
+        self.near_boundary_penalty_scale = 5 # shaping weight near boundary
+        self.c_step = 0.08 # timestep cost
 
         # default parameters
         self.n_states = 7938
         self.n_actions = 6
         self.gamma = 0.999 # gamma discount
-        self.alpha = 0.10 # learning rate
+        self.alpha = 0.05 # learning rate
         self.epsilon = 1.0 # exploration
         self.eps_decay = 0.9995
-        self.eps_min = 0.2
+        self.eps_min = 0.02
+        self.action_repeat = 3
         self.epsilon_eval = 0.0 # no exploration during evaluation
-        self.action_repeat_eval = 1
+        self.action_repeat_eval = 1 # no action repeat during evaluation
 
-        # Q-table initialisation
+        # Q-table initialisation        
         self.Q = np.zeros((self.n_states, self.n_actions), dtype=np.float32)
-        # Initialise with small random values
         self.Q += np.random.randn(self.n_states, self.n_actions) * 0.01
 
         # Curriculum stages
@@ -111,7 +107,7 @@ class CustomController(FlightController):
                 "target_bounds": self.target_bounds, 
                 "max_steps": 2500,
                 "alpha": 0.1,
-                "eps_start": 1.0, # Start with full exploration
+                "eps_start": self.epsilon, # Start with full exploration
                 "eps_decay": 0.9995,
                 "eps_min": 0.15,
                 "action_repeat": 1,
@@ -129,7 +125,6 @@ class CustomController(FlightController):
                 "eps_min": 0.1,
                 "action_repeat": 3,
                 "k_progress": self.k_progress,
-                "k_backwards": 0,
                 "boundary_penalty": 80,
                 "near_boundary_penalty_scale": 0.3,
             },
@@ -139,7 +134,7 @@ class CustomController(FlightController):
                 "target_bounds": self.full_bounds, 
                 "max_steps": 3500,
                 "alpha": 0.1,
-                "eps_start": 0.6,
+                "eps_start": 0.4,
                 "eps_decay": 0.999,
                 "eps_min": 0.05,
                 "action_repeat": 3,
@@ -388,32 +383,32 @@ class CustomController(FlightController):
         # Hover at current altitude with pitch stabilisation
         u0 = 0.5
         k_theta = 0.6
-        k_omega = 0.45 # was 0.25
+        k_omega = 0.25
         tau = -k_theta * float(drone.pitch) - k_omega * float(drone.pitch_velocity)
         return self._thrust_from_u_tau(u0, tau)
     
     def _h_tilt_left(self, drone: Drone) -> Tuple[float, float]:
         curr_dist = self._distance_to_target(drone)
         curr_dist = max(0.0, min(curr_dist, 0.3))
-        scale = curr_dist / 0.3   # 0 near, 1 far
+        scale = (curr_dist - 0.05) / 0.25   # 0 near, 1 far
         tx, ty = drone.get_next_target()
         dy = ty - drone.y
         
-        # Target a bank angle of ~16 degrees (0.28 radians) - This is steep enough to move fast, but safe from flipping.
-        target_pitch = -0.35
+        # Target a bank angle of ~20 degrees (0.35 radians)
+        target_pitch = -0.28
         
         # 1. Target Above: Climb (0.58 -> 0.64)
         if dy > 0.05 :
             u0 = 0.58 + (0.06 * scale)
-        # 2. Target Below: Dive (0.48 -> 0.42)
+        # 2. Target Below: Dive (0.46 -> 0.40)
         elif dy < -0.05:
-            u0 = 0.48 - (0.06 * scale)
+            u0 = 0.46 - (0.06 * scale)
         else:
-            u0 = 0.53
-        
-        # high k_theta, k_omega when far away; low k_theta, k_omega when close
-        k_theta = 0.6 + 0.2 * scale   # [0.4 → 0.8] to [0.6 → 0.8]
-        k_omega = 0.45 + 0.15 * scale    # [0.4  → 0.65] to [0.45  → 0.6] 
+            u0 = 0.52
+                  
+        # high k_theta, low k_omega when far away; low k_theta, high k_omega when close
+        k_theta = 0.4 + 0.4 * scale # [0.4 → 0.8]
+        k_omega = 0.3 - 0.1 * scale # [0.3 → 0.2]
         
         # Error = Current - Target
         pitch_error = float(drone.pitch) - target_pitch
@@ -425,24 +420,25 @@ class CustomController(FlightController):
     def _h_tilt_right(self, drone: Drone) -> Tuple[float, float]:
         curr_dist = self._distance_to_target(drone)
         curr_dist = max(0.0, min(curr_dist, 0.3))
-        scale = curr_dist / 0.3   # 0 near, 1 far
+        scale = (curr_dist - 0.05) / 0.25   # 0 near, 1 far
         tx, ty = drone.get_next_target()
         dy = ty - drone.y
         
-        target_pitch = 0.35
+        # Target a bank angle of ~20 degrees (0.35 radians)
+        target_pitch = 0.28
         
         # 1. Target Above: Climb (0.58 -> 0.64)
         if dy > 0.05 :
             u0 = 0.58 + (0.06 * scale)
-        # 2. Target Below: Dive (0.48 -> 0.42)
+        # 2. Target Below: Dive (0.46 -> 0.40)
         elif dy < -0.05:
-            u0 = 0.48 - (0.06 * scale)
+            u0 = 0.46 - (0.06 * scale)
         else:
-            u0 = 0.53
-            
+            u0 = 0.52
+                  
         # high k_theta, low k_omega when far away; low k_theta, high k_omega when close
-        k_theta = 0.6 + 0.2 * scale   # [0.4 → 0.8] to [0.6 → 0.8]
-        k_omega = 0.45 + 0.15 * scale    # [0.4  → 0.65] to [0.45  → 0.6] 
+        k_theta = 0.4 + 0.4 * scale # [0.4 → 0.8]
+        k_omega = 0.3 - 0.1 * scale # [0.3 → 0.2]
 
         pitch_error = float(drone.pitch) - target_pitch
         tau = -k_theta * pitch_error - k_omega * float(drone.pitch_velocity)
@@ -453,7 +449,7 @@ class CustomController(FlightController):
         # increase total thrust, keep level
         u0 = 0.62
         k_theta = 0.6
-        k_omega = 0.45  # was 0.25
+        k_omega = 0.25
         tau = -k_theta * float(drone.pitch) - k_omega * float(drone.pitch_velocity)
         return self._thrust_from_u_tau(u0, tau)
 
@@ -461,7 +457,7 @@ class CustomController(FlightController):
         # decrease total thrust, keep level
         u0 = 0.38
         k_theta = 0.6
-        k_omega = 0.45  # was 0.25
+        k_omega = 0.25
         tau = -k_theta * float(drone.pitch) - k_omega * float(drone.pitch_velocity)
         return self._thrust_from_u_tau(u0, tau)
 
@@ -471,31 +467,17 @@ class CustomController(FlightController):
         vx = float(drone.velocity_x)
         vy = float(drone.velocity_y)
         
-        # Calculate distance to target (for Position Hold)
-        tx, ty = drone.get_next_target()
-        dx = tx - drone.x
-
         # Horizontal damping via pitch control
-        # --- LOW SPEED: POSITION HOLD (The Magnet) ---
-        # If speed < 0.15, use dx to center the drone.
-        if abs(vx) < 0.15:
-            # Gentle nudge towards target
-            # Max tilt 0.10 rad (5 degrees) so it doesn't fight too hard
-            target_pitch = float(np.clip(0.6 * dx, -0.15, 0.15))
-            u0 = 0.50  # Hover Thrust
-        # --- HIGH SPEED: ANCHOR BRAKE (The Safety) ---
-        # If speed > 0.15, ignore position, just stop the car.
-        else:
-            k_theta_vx = 0.8
-            target_pitch = float(np.clip(-k_theta_vx * vx, -0.35, 0.35))  # +/- 20 degree
-            u0 = 0.53
+        k_theta_vx = 0.6
+        target_pitch = float(np.clip(-k_theta_vx * vx, -0.35, 0.35))  # +/- 20 degree
+        u0 = 0.50
 
         # vertical damping
         k_vy = 0.1
         u = u0 - k_vy * vy
 
         # PD controller
-        k_theta = 0.7 # was 0.9
+        k_theta = 0.9
         k_omega = 0.5 # was 0.35
         pitch_error = float(drone.pitch) - target_pitch
         tau = -k_theta * pitch_error - k_omega * float(drone.pitch_velocity)
@@ -543,24 +525,10 @@ class CustomController(FlightController):
             return reward, curr_dist, hit, r_parts
 
         else:
-            # ---------- Progress shaping ----------
-            # sigma = 0.25      # distance scale of the boost (tune)
-            # lam = 3.0         # how much stronger near target (tune)
-            # w  = 1.0 + lam * np.exp(-prev_dist / sigma)   # larger near target
-            
+            # ---------- Progress shaping ----------          
             dd = prev_dist - curr_dist # progress shaping
-            
-            progress = 0.0
-            backwards = 0.0
-            
-            # if abs(dd) > 2e-4:
-            if dd > 0:
-                # progress = float(min(dd, self.progress_clip))  #clipped progress shaping for stability
-                progress = dd
-            else:
-                backwards = -dd
-            
-            r_parts["progress"] = progress * self.k_progress - backwards * self.k_backwards
+            progress = max(0.0, dd)
+            r_parts["progress"] = progress * self.k_progress
             reward += r_parts["progress"]
             
             # ---------- Timestep penalty ----------
@@ -664,13 +632,13 @@ class CustomController(FlightController):
         # Update training params
         self.max_steps = int(stage["max_steps"])
         self.alpha = float(stage["alpha"])
-        self.eps_start = float(stage["eps_start"])
         self.eps_decay = float(stage["eps_decay"])
         self.eps_min = float(stage["eps_min"])
         self.action_repeat = int(stage["action_repeat"])
         self.target_bounds = stage["target_bounds"]
         self.total_targets = int(stage["n"])
-        self.boundary_penalty = int(stage["boundary_penalty"])
+        self.boundary_penalty = float(stage["boundary_penalty"])
+        self.near_boundary_penalty_scale  = float(stage["near_boundary_penalty_scale"])
         return stage
    
     # ============================================================
