@@ -74,6 +74,7 @@ def evaluate(
     max_steps: Optional[int] = None,
     bounds: Optional[Tuple[float, float, float, float]] = None,
     dt: Optional[float] = None,
+    return_mode="report"  # "report" or "return"
 ) -> Dict[str, Any]:
     """
     Evaluate controller with greedy policy (no exploration)
@@ -268,7 +269,7 @@ def evaluate(
             path_efficiency.append(float(travel / straight))
         else:
             path_efficiency.append(float("nan"))
-    
+            
     # Compile evaluation report
     report: Dict[str, Any] = {
         "config": {
@@ -305,8 +306,20 @@ def evaluate(
     
     # Restore original settings
     controller.target_mode = old_mode
-    
-    return report
+        
+    # Return mode
+    if return_mode == 'report':
+        return report
+
+    if return_mode == 'metrics':
+        metrics = {
+            'success_rate': report['core']['success_rate'],
+            'targets_reached': report['core']['targets_reached']['mean'],
+            'crash_rate': report['core']['crash_rate'],
+            'path_efficiency': report['core']['path_efficiency']['mean'],
+            'time_to_target': report['core']['time_to_target']['median']
+        }
+        return metrics
 
 
 # ============================================================
