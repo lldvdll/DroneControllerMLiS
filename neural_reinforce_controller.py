@@ -170,9 +170,9 @@ class Policy():
         # Initialise sigmas to 0.3 ~ exp(-1.2)
         self.b2[2:] = -1.2
         
-        print(f'Input size: {input_size}, Hidden size: {hidden_size}, Output size: {output_size}')
-        print(f'Hidden Layer: W1: {self.W1.shape}, b1: {self.b1.shape}')
-        print(f'Output Layer: W2: {self.W2.shape}, b2: {self.b2.shape}')
+        # print(f'Input size: {input_size}, Hidden size: {hidden_size}, Output size: {output_size}')
+        # print(f'Hidden Layer: W1: {self.W1.shape}, b1: {self.b1.shape}')
+        # print(f'Output Layer: W2: {self.W2.shape}, b2: {self.b2.shape}')
         pass
     
     def forward(self, state):
