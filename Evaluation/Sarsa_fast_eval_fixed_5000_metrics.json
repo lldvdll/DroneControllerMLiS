@@ -1,0 +1,72 @@
+{
+  "config": {
+    "eval_mode": "fixed",
+    "n_episodes": 1,
+    "seed": 0,
+    "bounds": [
+      -0.75,
+      0.75,
+      -0.5,
+      0.5
+    ],
+    "max_steps": 5000,
+    "action_repeat": 1
+  },
+  "core": {
+    "success_rate": 1.0,
+    "targets_reached": {
+      "mean": 4.0,
+      "std": 0.0
+    },
+    "crash_rate": 0.0,
+    "steps": {
+      "mean": 2404.0,
+      "std": 0.0
+    },
+    "time_to_target": {
+      "median": 537.5,
+      "q25": 430.25,
+      "q75": 708.25
+    },
+    "path_efficiency": {
+      "mean": 1.3515101516089276,
+      "std": 0.0
+    }
+  },
+  "stability": {
+    "mean_abs_pitch": {
+      "mean": 0.17956287112908734,
+      "std": 0.0
+    },
+    "max_abs_pitch": {
+      "mean": 0.36380309341319406,
+      "std": 0.0
+    },
+    "thrust_saturation_rate": {
+      "mean": 0.03036605657237937,
+      "std": 0.0
+    },
+    "osc_sign_changes": {
+      "mean": 14.0,
+      "std": 0.0
+    },
+    "pitch_variance": {
+      "mean": 0.04066533126283592,
+      "std": 0.0
+    }
+  },
+  "raw": {
+    "success_flags": [
+      1
+    ],
+    "targets_reached": [
+      4
+    ],
+    "crashes": [
+      0
+    ],
+    "ep_steps": [
+      2404
+    ]
+  }
+}
