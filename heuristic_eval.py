@@ -10,12 +10,12 @@ def main():
         ctrl,
         eval_mode="fixed",
         n_episodes=1,
-        max_steps= 5000,
+        max_steps= 3000,
         bounds=ctrl.full_bounds,
         log_trajectory = True,
         traj_filename = "Evaluation/heuristic_eval_fixed_trajectory"
     )
-    save_report(rep_fixed, "Evaluation/heuristic_eval_fixed_5000_metrics.json")
+    save_report(rep_fixed, "Evaluation/heuristic_eval_fixed_metrics.json")
 
     # Random targets evaluation
     rep_random = evaluate(
@@ -23,11 +23,11 @@ def main():
         eval_mode="random",
         n_episodes=100,
         seed=43,
-        max_steps= 5000,
+        max_steps= 7000,
         bounds=ctrl.full_bounds,
         log_trajectory = False
     )
-    save_report(rep_random, "Evaluation/heuristic_eval_random_5000_metrics.json")
+    save_report(rep_random, "Evaluation/heuristic_eval_random_metrics.json")
 
 if __name__ == "__main__":
     main()

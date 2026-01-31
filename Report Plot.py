@@ -71,7 +71,7 @@ for idx, row in stage_changes.iterrows():
 
 plt.legend(loc='lower right')
 plt.tight_layout()
-plt.savefig('Evaluation/Sarsa_fast_learning_curve.png')      
+plt.savefig('Evaluation/Sarsa_slow_learning_curve.png')      
 plt.show()
 
 
