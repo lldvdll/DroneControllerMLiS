@@ -1,0 +1,37 @@
+{
+    "experiment_name": "80_fresh_vb_fast",
+    "load": "best",
+    "continue_training": null,
+    "hyperparameters": {
+        "gamma": 0.95,
+        "learning_rate": 0.01,
+        "n_episodes": 1000,
+        "max_steps": 2500,
+        "batch_size": 10,
+        "hidden_size": 32,
+        "weight_scaling": 1,
+        "weight_decay": 0.001,
+        "baseline_mode": "sarsa",
+        "baseline_path": "runs/20260129_231302/q_table.npy",
+        "safe_zone": 2,
+        "curriculum": "increasing",
+        "curriculum_max_episodes": 10000
+    },
+    "rewards": {
+        "hit_bonus": 200,
+        "distance_weight": null,
+        "delta_distance": 50,
+        "delta_direction": null,
+        "pitch_penalty": null,
+        "spin_penalty": null,
+        "crash_penalty": 300,
+        "dx_penalty": null,
+        "velocity_alignment": null,
+        "x_drift": null,
+        "y_drift": null
+    },
+    "penalty_only_drift": false,
+    "hit_fast": false,
+    "hit_slow": false,
+    "target_mode": "random"
+}

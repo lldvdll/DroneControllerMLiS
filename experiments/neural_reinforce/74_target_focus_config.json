@@ -1,0 +1,37 @@
+{
+    "experiment_name": "74_target_focus",
+    "load": "best",
+    "continue_training": "73_reset_curriculum",
+    "hyperparameters": {
+        "gamma": 0.95,
+        "learning_rate": 0.01,
+        "n_episodes": 10000,
+        "max_steps": 2500,
+        "batch_size": 25,
+        "hidden_size": 32,
+        "weight_scaling": 1,
+        "weight_decay": 0.005,
+        "baseline_mode": "mean",
+        "baseline_path": "runs/20260129_231302/q_table.npy",
+        "safe_zone": 2,
+        "curriculum": "increasing",
+        "curriculum_max_episodes": 10000
+    },
+    "rewards": {
+        "hit_bonus": 250,
+        "distance_weight": null,
+        "delta_distance": 50,
+        "delta_direction": null,
+        "pitch_penalty": null,
+        "spin_penalty": 0.1,
+        "crash_penalty": 500,
+        "dx_penalty": null,
+        "velocity_alignment": 10,
+        "x_drift": null,
+        "y_drift": null
+    },
+    "penalty_only_drift": false,
+    "hit_fast": true,
+    "hit_slow": false,
+    "target_mode": "random"
+}

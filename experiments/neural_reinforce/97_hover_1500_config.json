@@ -1,0 +1,38 @@
+{
+    "experiment_name": "97_hover_1500",
+    "load": "best",
+    "continue_training": "96_hover_1000",
+    "reset_sigma": false,
+    "hyperparameters": {
+        "gamma": 0.5,
+        "learning_rate": 0.03,
+        "n_episodes": 500,
+        "max_steps": 1500,
+        "batch_size": 10,
+        "hidden_size": 32,
+        "weight_scaling": 1,
+        "weight_decay": 0.0,
+        "baseline_mode": "mean",
+        "baseline_path": null,
+        "safe_zone": 2,
+        "curriculum": "hover",
+        "curriculum_max_episodes": 1000
+    },
+    "rewards": {
+        "hit_bonus": null,
+        "distance_weight": 2.0,
+        "delta_distance": null,
+        "delta_direction": null,
+        "pitch_penalty": 0.1,
+        "spin_penalty": 0.05,
+        "crash_penalty": 500,
+        "dx_penalty": null,
+        "velocity_alignment": null,
+        "x_drift": 10,
+        "y_drift": 10
+    },
+    "penalty_only_drift": true,
+    "hit_fast": false,
+    "hit_slow": true,
+    "target_mode": "hover"
+}

@@ -1,0 +1,37 @@
+{
+    "experiment_name": "73_reset_curriculum",
+    "load": "best",
+    "continue_training": "60_reward_shaping_phase1",
+    "hyperparameters": {
+        "gamma": 0.8,
+        "learning_rate": 0.02,
+        "n_episodes": 5000,
+        "max_steps": 2500,
+        "batch_size": 25,
+        "hidden_size": 32,
+        "weight_scaling": 1,
+        "weight_decay": 0.005,
+        "baseline_mode": "mean",
+        "baseline_path": "runs/20260129_231302/q_table.npy",
+        "safe_zone": 2,
+        "curriculum": "increasing",
+        "curriculum_max_episodes": 10000
+    },
+    "rewards": {
+        "hit_bonus": 200,
+        "distance_weight": 0.1,
+        "delta_distance": 50,
+        "delta_direction": null,
+        "pitch_penalty": 0.1,
+        "spin_penalty": 0.1,
+        "crash_penalty": 500,
+        "dx_penalty": null,
+        "velocity_alignment": 5,
+        "x_drift": 1,
+        "y_drift": 2
+    },
+    "penalty_only_drift": false,
+    "hit_fast": false,
+    "hit_slow": false,
+    "target_mode": "random"
+}

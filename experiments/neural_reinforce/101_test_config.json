@@ -1,0 +1,39 @@
+{
+    "experiment_name": "101_test",
+    "load": "best",
+    "continue_training": "100_movement",
+    "reset_sigma": false,
+    "target_mode": "random",
+    "curriculum_max_episodes": 2000,
+    "safe_zone": 2,
+    "hyperparameters": {
+        "gamma": 0.95,
+        "learning_rate": 0.002,
+        "n_episodes": 10,
+        "max_steps": 500,
+        "batch_size": 10,
+        "hidden_size": 32,
+        "weight_scaling": 1,
+        "weight_decay": 0.0,
+        "baseline_mode": "mean",
+        "baseline_path": null
+    },
+    "rewards": {
+        "hit_bonus": 10,
+        "distance_weight": 1.0,
+        "delta_distance": 10,
+        "delta_direction": null,
+        "pitch_penalty": null,
+        "spin_penalty": null,
+        "crash_penalty": 500,
+        "dx_penalty": null,
+        "velocity_alignment": null,
+        "x_drift": null,
+        "y_drift": null,
+        "action_penalty": 0.01,
+        "d_gated_velocity": 0.5
+    },
+    "penalty_only_drift": true,
+    "hit_fast": false,
+    "hit_slow": false
+}
