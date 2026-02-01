@@ -1,19 +1,21 @@
 """
-Evaluation Module for SARSA Drone Controller
-
+Evaluation Module
 Provides comprehensive evaluation metrics including:
 - Success rate and crash rate
 - Target completion statistics
 - Stability and control metrics
 - Path efficiency analysis
 """
-
 import json
 import math
 import numpy as np
 from typing import Dict, Any, List, Tuple, Optional
 from drone import Drone
 from SARSA_controller import CustomController
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import matplotlib.lines as mlines
 
 
 # ============================================================
@@ -61,7 +63,6 @@ def _median_iqr(values: List[float]) -> Dict[str, float]:
         "q75": float(np.quantile(arr, 0.75)),
     }
 
-
 # ============================================================
 # Evaluation Function
 # ============================================================
@@ -73,7 +74,8 @@ def evaluate(
     seed: int = 0,
     max_steps: Optional[int] = None,
     bounds: Optional[Tuple[float, float, float, float]] = None,
-    dt: Optional[float] = None,
+    log_trajectory: bool = False,
+    traj_filename: Optional[str] = None,
     return_mode="report"  # "report" or "return"
 ) -> Dict[str, Any]:
     """
@@ -86,7 +88,8 @@ def evaluate(
         seed: Random seed for reproducibility
         max_steps: Maximum steps per episode (default: controller.max_steps)
         bounds: World bounds (default: controller.full_bounds)
-        dt: Simulation timestep (default: controller.dt)
+        log_trajectory: Log flight trajectory (True/False)
+        trajectory_filename: filenames for saving trajectory
     
     Returns:
         Dictionary containing evaluation metrics
@@ -97,9 +100,10 @@ def evaluate(
     # Set evaluation mode
     controller.target_mode = eval_mode
     
+    # Simulation timestep
+    dt = 0.01
+    
     # Use defaults if not specified
-    if dt is None:
-        dt = controller.dt
     if bounds is None:
         bounds = controller.full_bounds
     if max_steps is None:
@@ -122,6 +126,9 @@ def evaluate(
     # Path efficiency
     path_efficiency: List[float] = []
     
+    # Trajectory_log
+    trajectory_log: List[float] = []
+    
     # Set random seed
     np.random.seed(seed)
     
@@ -130,7 +137,7 @@ def evaluate(
         # Episode-specific seed
         np.random.seed(seed * 10000 + ep)
         
-        # Initialize episode
+        # Initialise episode
         drone = controller.init_drone()
         n_init_targets = len(drone.target_coordinates)
         done = False
@@ -162,7 +169,7 @@ def evaluate(
         rep = int(getattr(controller, "action_repeat_eval", 1))
         rep = max(rep, 1)
         
-        while steps_taken < max_steps:
+        while not done and steps_taken < max_steps:
             # Get action from controller
             thrusts = controller.get_thrusts(drone)
             
@@ -181,6 +188,23 @@ def evaluate(
                 drone.set_thrust(thrusts)
                 drone.step_simulation(dt)
                 steps_taken += 1
+                
+                
+                # Track trajectory
+                if log_trajectory:
+                    # Check target safely
+                    tx, ty = (None, None)
+                    if not _all_targets_done(drone):
+                        tgt = drone.get_next_target()
+                        tx, ty = float(tgt[0]), float(tgt[1])
+                        
+                    trajectory_log.append({
+                        "step": steps_taken,
+                        "x": float(drone.x),
+                        "y": float(drone.y),
+                        "target_x": tx,
+                        "target_y": ty
+            })
             
                 # Track path length
                 x, y = float(drone.x), float(drone.y)
@@ -277,7 +301,6 @@ def evaluate(
             "n_episodes": n_episodes,
             "seed": seed,
             "bounds": bounds,
-            "dt": dt,
             "max_steps": max_steps,
             "action_repeat": int(getattr(controller, "action_repeat_eval", 1)),
         },
@@ -307,21 +330,110 @@ def evaluate(
     # Restore original settings
     controller.target_mode = old_mode
         
+    if log_trajectory and trajectory_log:
+        df = pd.DataFrame(trajectory_log)
+        csv_filename = f"{traj_filename}.csv"
+        df.to_csv(csv_filename, index=False)
+        plot_filename = f"{traj_filename}.png"
+        plot_trajectory(df, plot_filename)
+    
     # Return mode
     if return_mode == 'report':
         return report
 
-    if return_mode == 'metrics':
-        metrics = {
-            'success_rate': report['core']['success_rate'],
-            'targets_reached': report['core']['targets_reached']['mean'],
-            'crash_rate': report['core']['crash_rate'],
-            'path_efficiency': report['core']['path_efficiency']['mean'],
-            'time_to_target': report['core']['time_to_target']['median']
-        }
-        return metrics
+# ============================================================
+# Plot trajectory
+# ============================================================
 
+def plot_trajectory(df, filename):
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'Times', 'DejaVu Serif'],
+        'mathtext.fontset': 'stix',
+        'font.size': 9,
+        'axes.labelsize': 10,
+        'legend.fontsize': 9,
+        'xtick.labelsize': 8,
+        'ytick.labelsize': 8,
+        'axes.linewidth': 0.8,
+        'legend.frameon': False, 
+        'figure.figsize': (6,4.5),
+        'figure.dpi': 300
+        })
+    
+    fig, ax = plt.subplots()
 
+    # Draw Boundaries
+    bounds = [-0.75, 0.75, -0.5, 0.5]
+    ax.plot([bounds[0], bounds[1], bounds[1], bounds[0], bounds[0]],
+            [bounds[2], bounds[2], bounds[3], bounds[3], bounds[2]],
+            color='#222222', linestyle='-', linewidth=1.5, label='Boundary')
+
+    # Draw Targets
+    if 'target_x' in df.columns:
+        targets = df[['target_x', 'target_y']].dropna().drop_duplicates()
+        
+        for i, (tx, ty) in enumerate(targets.values):
+            # Outline Circle
+            circle = patches.Circle((tx, ty), radius=0.1, 
+                                    edgecolor='#CC0000', facecolor='none', 
+                                    linewidth=1, linestyle='-', zorder=3)
+            ax.add_patch(circle)
+            
+            # Center Cross
+            ax.plot(tx, ty, marker='+', color='#CC0000', 
+                    markersize=25, markeredgewidth=2, linestyle='None', zorder=4)
+
+    # Draw Path
+    ax.plot(df['x'], df['y'], color='#003366', linestyle='--', linewidth=2, label='Flight Path', zorder=2)
+    
+    # Draw Start & End
+    # Start: Green Circle
+    ax.plot(df.iloc[0]['x'], df.iloc[0]['y'], marker='o', color='#228B22', 
+            markersize=5, markeredgecolor='black', markeredgewidth=0.5, 
+            linestyle='None', label='Start', zorder=5)
+            
+    # End: Black Square 
+    ax.plot(df.iloc[-1]['x'], df.iloc[-1]['y'], marker='s', color='black', 
+            markersize=5, markeredgecolor='black', markeredgewidth=0.5,
+            linestyle='None', label='End', zorder=5)
+              
+    # Labels & Limits
+    ax.set_xlabel(r'$x$')
+    ax.set_ylabel(r'$y$')
+    
+    margin = 0.05
+    ax.set_xlim(bounds[0] - margin, bounds[1] + margin)
+    ax.set_ylim(bounds[2] - margin, bounds[3] + margin)
+    ax.set_aspect('equal')
+    
+    # --- Custom Legend ---
+    # Target Handle
+    h_circle = mlines.Line2D([], [], color='none', marker='o', 
+                             markerfacecolor='none', markeredgecolor='#CC0000', 
+                             markersize=10, markeredgewidth=0.6)
+
+    h_cross = mlines.Line2D([], [], color='#CC0000', marker='+', 
+                            linestyle='None', markersize=9, markeredgewidth=1.5)
+    combined_handle = (h_circle, h_cross)
+    handles, labels = ax.get_legend_handles_labels()
+    handles.append(combined_handle)
+    labels.append("Target")               
+    
+    # Sort
+    by_label = dict(zip(labels, handles))
+    order = ['Flight Path', 'Target', 'Start', 'End', 'Boundary']
+    ordered_handles = [by_label[k] for k in order if k in by_label]
+    ordered_labels = [k for k in order if k in by_label]
+
+    ax.legend(ordered_handles, ordered_labels, loc='lower center', 
+              bbox_to_anchor=(0.5, 1.05), ncol=3, 
+              handletextpad=0.5, columnspacing=0.8)
+    
+    plt.tight_layout()
+    plt.savefig(f"{filename}", bbox_inches='tight')
+    plt.close()
+    
 # ============================================================
 # Reporting Functions
 # ============================================================

@@ -5,31 +5,29 @@ from heuristic_controller import HeuristicController
 def main():
     ctrl = HeuristicController()
 
-    dt = 0.01
-
-    # FIXED targets evaluation
+    # Fixed targets evaluation
     rep_fixed = evaluate(
         ctrl,
         eval_mode="fixed",
-        n_episodes=50,
-        seed=42,
-        max_steps= 5000,
+        n_episodes=1,
+        max_steps= 3000,
         bounds=ctrl.full_bounds,
-        dt=dt,
+        log_trajectory = True,
+        traj_filename = "Evaluation/heuristic_eval_fixed_trajectory"
     )
-    save_report(rep_fixed, "heuristic_eval_fixed_50ep_5000.json")
+    save_report(rep_fixed, "Evaluation/heuristic_eval_fixed_metrics.json")
 
-    # RANDOM targets evaluation
+    # Random targets evaluation
     rep_random = evaluate(
         ctrl,
         eval_mode="random",
-        n_episodes=50,
+        n_episodes=100,
         seed=43,
-        max_steps= 5000,
+        max_steps= 7000,
         bounds=ctrl.full_bounds,
-        dt=dt,
+        log_trajectory = False
     )
-    save_report(rep_random, "heuristic_eval_random_50ep_5000.json")
+    save_report(rep_random, "Evaluation/heuristic_eval_random_metrics.json")
 
 if __name__ == "__main__":
     main()
