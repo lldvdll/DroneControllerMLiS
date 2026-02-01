@@ -340,6 +340,15 @@ def evaluate(
     # Return mode
     if return_mode == 'report':
         return report
+    
+    elif return_mode == 'metrics':
+        metrics = {}
+        metrics['success_rate'] = report['core']['success_rate']
+        metrics['crash_rate'] = report['core']['crash_rate']
+        metrics['targets_reached'] = report['core']['targets_reached']['mean']
+        metrics['time_to_target'] = report['core']['time_to_target']['median']
+        metrics['path_efficiency'] = report['core']['path_efficiency']['mean']
+        return metrics
 
 # ============================================================
 # Plot trajectory
