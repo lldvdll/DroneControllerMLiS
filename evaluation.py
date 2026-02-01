@@ -447,9 +447,9 @@ def plot_trajectory(df, filename):
     ordered_handles = [by_label[k] for k in order if k in by_label]
     ordered_labels = [k for k in order if k in by_label]
 
-    ax.legend(ordered_handles, ordered_labels, loc='lower center', 
-              bbox_to_anchor=(0.5, 1.05), ncol=3, 
-              handletextpad=0.5, columnspacing=0.8)
+    # ax.legend(ordered_handles, ordered_labels, loc='lower center', 
+    #           bbox_to_anchor=(0.5, 1.05), ncol=3, 
+    #           handletextpad=0.5, columnspacing=0.8)
     
     plt.tight_layout()
     plt.savefig(f"{filename}", bbox_inches='tight')

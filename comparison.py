@@ -33,14 +33,14 @@ MODELS = {
     #     'controller': 'NeuralReinforceController',
     #     'load_args': dict(filename='73_reset_curriculum', mode='best')
     # },
-    # 'REINFROCE (90_continue_hover)': {
-    #     'controller': 'NeuralReinforceController',
-    #     'load_args': dict(filename='90_continue_hover', mode='best')
-    # },
-    'REINFROCE': {
+    'REINFORCE': {
         'controller': 'NeuralReinforceController',
-        'load_args': dict(filename='106_movement', mode='best')
+        'load_args': dict(filename='90_continue_hover', mode='best')
     },
+    # 'REINFORCE': {
+    #     'controller': 'NeuralReinforceController',
+    #     'load_args': dict(filename='106_movement', mode='best')
+    # },
     # 'Neural REINFROCE (100_movement best)': {
     #     'controller': 'NeuralReinforceController',
     #     'load_args': dict(filename='102_movement_vb', mode='best')
@@ -73,35 +73,36 @@ def process_comparison_table(df):
     
     df['success_rate'] = (df['success_rate'] * 100).round(1)
     df['crash_rate'] = (df['crash_rate'] * 100).round(1)
-    df['targets_reached'] = df['targets_reached'].round(2).astype(str)+' \u00B1 '+df['targets_reached_std'].round(2).astype(str)
-    df['path_efficiency'] = df['path_efficiency'].round(2).astype(str)+' \u00B1 '+df['path_efficiency_std'].round(2).astype(str)
-    df['pitch_variance'] = df['pitch_variance'].round(3).astype(str)+' \u00B1 '+df['pitch_variance_std'].round(3).astype(str)
-    df = df[['crash_rate', 'targets_reached', 'time_to_target', 'path_efficiency', 'pitch_variance']]
+    df['targets_reached'] = df['targets_reached'].round(2)
+    df['time_to_target'] = df['time_to_target'].round(2)#.astype(str)+' \u00B1 '+df['targets_reached_std'].round(2).astype(str)
+    df['path_efficiency'] = df['path_efficiency'].round(2)#.astype(str)+' \u00B1 '+df['path_efficiency_std'].round(2).astype(str)
+    df = df[['crash_rate', 'targets_reached', 'time_to_target', 'path_efficiency']]
         
     df = df.rename(columns={
-        'success_rate': 'Success Rate (%)',
         'crash_rate': 'Crash Rate (%)',
         'targets_reached': 'Targets Reached',
-        'time_to_target': 'Time to Target (Median)',
-        'path_efficiency': 'Path Efficiency',
-        'pitch_variance': 'Stability (Pitch Variance)'
+        'time_to_target': 'Travel Time',
+        'path_efficiency': 'Path Eff.',
     })
     
     return df
 
 
 def df_to_latex_table(df, name):
+    
     latex = (
-        df.style
-        .format(precision=2)
-        .set_properties(**{"text-align": "right"})
-        .to_latex(
-            hrules=True,
-            position="H",
-            caption="My results",
-            label="tab:results"
+            df.style
+            .format(precision=2)
+            .highlight_min(subset=['Crash Rate (%)', 'Travel Time', 'Path Eff.'], props='cellcolor:green!25')
+            .highlight_max(subset=['Targets Reached'], props='cellcolor:green!25')
+            .to_latex(
+                hrules=True,                                     # Uses \toprule, \midrule, \bottomrule
+                position="H",                                    # Forces table placement
+                caption=f"Results ({name})",
+                label=f"tab:results_{name}",
+                column_format="l" + "r" * len(df.columns)        # 'l' for index, 'r' for all numbers
+            )
         )
-    )
     
     latex = latex.replace('\u00B1', r'$\pm$')
 
