@@ -154,7 +154,8 @@ def evaluate(
         sat_count = 0
         
         # Path tracking
-        travel = 0.0
+        travel_committed = 0.0  # Distance of fully completed segments
+        travel_segment = 0.0    # Distance of current segment only
         straight = 0.0
         prev_x, prev_y = float(drone.x), float(drone.y)
         seg_start = (prev_x, prev_y)
@@ -208,7 +209,7 @@ def evaluate(
             
                 # Track path length
                 x, y = float(drone.x), float(drone.y)
-                travel += math.hypot(x - prev_x, y - prev_y)
+                travel_segment += math.hypot(x - prev_x, y - prev_y)
                 prev_x, prev_y = x, y
                 
                 # Track stability
@@ -228,6 +229,10 @@ def evaluate(
                     hit_step = steps_taken
                     per_ep_ttt.append(hit_step - last_hit_step)
                     last_hit_step = hit_step
+                    
+                    # Commit the segment travel to the total
+                    travel_committed += travel_segment
+                    travel_segment = 0.0 # Reset for next segment
                 
                     # Update straight-line distance
                     if seg_target is not None:
@@ -290,7 +295,7 @@ def evaluate(
         
         # Path efficiency
         if straight > 1e-9:
-            path_efficiency.append(float(travel / straight))
+            path_efficiency.append(float(travel_committed/ straight))
         else:
             path_efficiency.append(float("nan"))
             

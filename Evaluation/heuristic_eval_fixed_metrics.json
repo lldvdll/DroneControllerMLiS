@@ -13,60 +13,60 @@
     "action_repeat": 1
   },
   "core": {
-    "success_rate": 0.0,
+    "success_rate": 1.0,
     "targets_reached": {
-      "mean": 2.0,
+      "mean": 5.0,
       "std": 0.0
     },
-    "crash_rate": 1.0,
+    "crash_rate": 0.0,
     "steps": {
-      "mean": 1218.0,
+      "mean": 1721.0,
       "std": 0.0
     },
     "time_to_target": {
-      "median": 470.5,
-      "q25": 415.75,
-      "q75": 525.25
+      "median": 223.0,
+      "q25": 189.0,
+      "q75": 329.0
     },
     "path_efficiency": {
-      "mean": 2.0496963668730253,
+      "mean": 1.5317008402082872,
       "std": 0.0
     }
   },
   "stability": {
     "mean_abs_pitch": {
-      "mean": 0.1460103185473922,
+      "mean": 0.13915106395575932,
       "std": 0.0
     },
     "max_abs_pitch": {
-      "mean": 0.35596073552744,
+      "mean": 0.44910736212942404,
       "std": 0.0
     },
     "thrust_saturation_rate": {
-      "mean": 0.09523809523809523,
+      "mean": 0.0,
       "std": 0.0
     },
     "osc_sign_changes": {
-      "mean": 5.0,
+      "mean": 7.0,
       "std": 0.0
     },
     "pitch_variance": {
-      "mean": 0.031105884592039727,
+      "mean": 0.028144612933805796,
       "std": 0.0
     }
   },
   "raw": {
     "success_flags": [
-      0
-    ],
-    "targets_reached": [
-      2
-    ],
-    "crashes": [
       1
     ],
+    "targets_reached": [
+      5
+    ],
+    "crashes": [
+      0
+    ],
     "ep_steps": [
-      1218
+      1721
     ]
   }
 }
