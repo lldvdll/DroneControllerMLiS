@@ -16,7 +16,7 @@ from SARSA_controller import CustomController as SARSAController
 IS_TRAINING = False
 CONTROLLER = 'HeuristicController'
 CONTROLLER = 'NeuralReinforceController'
-CONTROLLER = 'SARSAController'
+# CONTROLLER = 'SARSAController'
 
 # Simulation settings
 TARGET_MODE = 'random'  # From "fixed", "random", "simple_random", "hover", "increasing"
@@ -32,7 +32,9 @@ def generate_controller() -> FlightController:
         controller = HeuristicController()
         
     elif CONTROLLER == 'NeuralReinforceController':
-        config = "experiments/neural_reinforce/60_reward_shaping_phase1_config.json"
+        # config = "experiments/neural_reinforce/60_reward_shaping_phase1_config.json"
+        # config = "experiments/neural_reinforce/90_continue_hover_config.json"
+        config = "experiments/neural_reinforce/63_increase_gamma_config.json"
         test_mode = not IS_TRAINING
         controller = NeuralReinforceController(config_file=config, test_mode=test_mode)
         controller.load(mode='best')
