@@ -170,9 +170,6 @@ class Policy():
         # Initialise sigmas to 0.3 ~ exp(-1.2)
         self.b2[2:] = -1.2
         
-        # print(f'Input size: {input_size}, Hidden size: {hidden_size}, Output size: {output_size}')
-        # print(f'Hidden Layer: W1: {self.W1.shape}, b1: {self.b1.shape}')
-        # print(f'Output Layer: W2: {self.W2.shape}, b2: {self.b2.shape}')
         pass
     
     def forward(self, state):
@@ -314,6 +311,7 @@ class RewardManager:
         self.target = drone.get_next_target()
         dist_vector = np.array([self.target[0] - drone.x, self.target[1] - drone.y])
         self.dist = np.linalg.norm(dist_vector)
+        self.delta_dist = self.prev_dist - self.dist
         self.unit_dist_vector = dist_vector / self.dist
         self.velocity = np.array([drone.velocity_x, drone.velocity_y])
         self.speed = np.linalg.norm(self.velocity)
@@ -349,7 +347,11 @@ class RewardManager:
         """
         if self.prev_dist is None or drone.has_reached_target_last_update:
             return 0.0  # Just do nothing on the first step, or when target is aqcuired
-        return (self.prev_dist - self.dist) * weight
+        return self.delta_dist * weight
+    
+    def _reward_progress(self, drone, weight):
+        progress = max(0.0, self.delta_dist)
+        return progress * weight
 
     def _reward_accel_alignment(self, drone, weight):
         """ Direction alignment of acceleration and path to target"""
@@ -420,6 +422,9 @@ class RewardManager:
         """
         gate = 1 / (1 + np.exp((self.dist - 0.3) / 0.05))
         return -self.speed * gate * weight
+    
+    def _reward_time_step(self, drone, weight):
+        return -weight
 
 
 class NeuralReinforceController(FlightController):
@@ -546,14 +551,13 @@ class NeuralReinforceController(FlightController):
         action, _ = self.get_action(state, mode='test')
         return self.convert_action_to_thrust(action)
     
-    def get_returns(self, rewards, normalise=True):
+    def get_returns(self, rewards, normalise=True, gamma=0.99):
         """
         Monty Carlo returns
             Reverse discounted sum
             Center mean (baseline subtrraction) - need good=positive, bad=negative for REINFORCE
             Normalise by std - keeps returns in a range to stabilise gradients
         """
-        gamma = self.config['hyperparameters']['gamma']
         returns = []
         G = 0
         
@@ -696,9 +700,16 @@ class NeuralReinforceController(FlightController):
             # if np.sum(rewards) > best_score:
             #     best_score = np.sum(rewards)
             #     self.save(best=True)
+            
+            # Calculate gamma if increasing
+            gamma0 = self.config['hyperparameters']['gamma']
+            if self.config['hyperparameters']['increase_gamma']:
+                gamma = v = gamma0 + (0.99 - gamma0) * episode / n_episodes
+            else:
+                gamma = gamma0
                 
             # Calculate returns - espisodic returns for discounting, will normalise over batch
-            returns = self.get_returns(rewards, normalise=False)
+            returns = self.get_returns(rewards, normalise=False, gamma=gamma)
             
             # Store prtial batch
             batch_size = self.config['hyperparameters']['batch_size']

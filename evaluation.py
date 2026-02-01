@@ -138,7 +138,10 @@ def evaluate(
         np.random.seed(seed * 10000 + ep)
         
         # Initialise episode
-        drone = controller.init_drone()
+        try:
+            drone = controller.init_drone(mode=eval_mode)
+        except:
+            drone = controller.init_drone()
         n_init_targets = len(drone.target_coordinates)
         done = False
         crashed = 0
@@ -351,8 +354,12 @@ def evaluate(
         metrics['success_rate'] = report['core']['success_rate']
         metrics['crash_rate'] = report['core']['crash_rate']
         metrics['targets_reached'] = report['core']['targets_reached']['mean']
+        metrics['targets_reached_std'] = report['core']['targets_reached']['std']
         metrics['time_to_target'] = report['core']['time_to_target']['median']
         metrics['path_efficiency'] = report['core']['path_efficiency']['mean']
+        metrics['path_efficiency_std'] = report['core']['path_efficiency']['std']
+        metrics['pitch_variance'] = report['stability']['pitch_variance']['mean']
+        metrics['pitch_variance_std'] = report['stability']['pitch_variance']['std']
         return metrics
 
 # ============================================================
