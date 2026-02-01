@@ -81,6 +81,13 @@ def main(controller: FlightController):
     # Track cumulative rewards
     rewards_cum = {}
     reward_history = []
+    
+    # Reward plotting and display management
+    if hasattr(controller, 'reward_manager'):
+        controller.reward_manager.episode_reset(drone)
+    else:
+        DISPLAY_REWARDS = False
+        PLOT_REWARDS = False
 
     # Run the simulation
     running = True
@@ -92,19 +99,17 @@ def main(controller: FlightController):
 
         # --- Begin Physics --- #
         # Get the thrust information from the controller
-        drone.set_thrust(controller.get_thrusts(drone))
+        action = controller.get_thrusts(drone)
+        drone.set_thrust(action)
         # Update the simulation
         drone.step_simulation(delta_time)
-                # Get rewards for display and plot
+        # Get rewards for display and plot
         if PLOT_REWARDS:
-            try:
-                _, rewards = controller.get_reward(drone)
-                for k,v in rewards.items():  # Accumulate rewards for display
-                    rewards_cum[k] = rewards_cum.get(k, 0) + v        
-                reward_history.append(rewards_cum.copy())  # Track reward history for final plot
-            except:
-                DISPLAY_REWARDS = False
-                PLOT_REWARDS = False
+            controller.reward_manager.episode_reset(drone)
+            _, rewards = controller.reward_manager.calculate(drone, action)
+            for k,v in rewards.items():  # Accumulate rewards for display
+                rewards_cum[k] = rewards_cum.get(k, 0) + v        
+            reward_history.append(rewards_cum.copy())  # Track reward history for final plot
                 
         # Stop if all targets are completed
         next_target = drone.get_next_target()
@@ -136,6 +141,8 @@ def main(controller: FlightController):
         if (simulation_step_counter>max_simulation_steps):
             drone = controller.init_drone(mode=TARGET_MODE, num_targets=NUM_TARGETS) # Reset the drone
             simulation_step_counter = 0
+            if hasattr(controller, 'reward_manager'):
+                controller.reward_manager.episode_reset(drone)
             
     # Close the program
     pygame.quit()

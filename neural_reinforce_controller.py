@@ -283,6 +283,150 @@ class Policy():
         total_norm = np.linalg.norm(grad_W1) + np.linalg.norm(grad_W2)
         return total_norm
 
+class RewardManager:
+    def __init__(self, config):
+        self.config = config
+        self.rewards_cfg = config['rewards']
+        
+        # Init stores for states and actions
+        self.prev_dist = None
+        self.prev_velocity = np.zeros(2)
+        self.last_action = np.zeros(2)
+        
+        # Set active rewards based on config
+        # Ignore if config value is "null", otherwise method to reward list
+        self.active_rewards = []
+        for key, weight in self.rewards_cfg.items():
+            if weight is None:
+                continue
+            method_name = f"_reward_{key}"
+            method = getattr(self, method_name, None)
+            self.active_rewards.append((method, weight, key))
+
+    def episode_reset(self, drone):
+        """ Reset stored values at episode start"""
+        target = drone.get_next_target()
+        self.prev_dist = np.linalg.norm([target[0] - drone.x, target[1] - drone.y])
+        self.prev_velocity = np.zeros(2)
+        self.last_action = np.zeros(2)
+        self.steps_taken = 0
+
+    def calculate(self, drone, action):
+        total_reward = 0.0
+        log = {}  # Log for display/plotting
+        
+        # Precalculated values used a few times
+        self.target = drone.get_next_target()
+        dist_vector = np.array([self.target[0] - drone.x, self.target[1] - drone.y])
+        self.dist = np.linalg.norm(dist_vector)
+        self.unit_dist_vector = dist_vector / self.dist
+        self.velocity = np.array([drone.velocity_x, drone.velocity_y])
+        self.speed = np.linalg.norm(self.velocity)
+
+        # Iterate over active reward methods, accumulating and logging
+        for method, weight, key in self.active_rewards:
+            part = method(drone, weight)  # drone, calcs, config value
+            total_reward += part
+            log[key] = part
+        log['Total'] = total_reward
+
+        # Update stored states
+        self.prev_dist = self.dist
+        self.prev_velocity = self.velocity
+        self.last_action = action
+        
+        # Target hit updates
+        if drone.has_reached_target_last_update:
+            self.steps_taken = 0
+        else:
+            self.steps_taken += 1
+
+        return total_reward, log
+    
+    def _reward_distance_weight(self, drone, weight):
+        """ Linear distance to target penalty
+            Add bias, positive reward inside screen 
+        """
+        return (0.25 - self.dist) * weight
+
+    def _reward_delta_distance(self, drone, weight):
+        """ Reward for moving toward target (penalty for moving away)
+        """
+        if self.prev_dist is None or drone.has_reached_target_last_update:
+            return 0.0  # Just do nothing on the first step, or when target is aqcuired
+        return (self.prev_dist - self.dist) * weight
+
+    def _reward_accel_alignment(self, drone, weight):
+        """ Direction alignment of acceleration and path to target"""
+        delta_v = self.velocity - self.prev_velocity
+        return np.dot(delta_v, self.unit_dist_vector) * weight
+
+    def _reward_vel_alignment(self, drone, weight):
+        """ Direction alignment of velocity and path to target"""
+        return np.dot(self.velocity, self.unit_dist_vector) * weight
+
+    def _reward_x_drift(self, drone, weight):
+        """ Penalises roll actions which amplify lateral drift"""
+        vx = drone.velocity_x
+        roll = self.last_action[1]
+        correction = -(vx * roll)  # Negative for anti-corrections
+        if self.config['penalty_only_drift']:
+            correction = min(0, correction)  # Including corrections results in oscillations
+        return correction * weight
+
+    def _reward_y_drift(self, drone, weight):
+        """ Penalises thrust actions which amplify vertical drift"""
+        vy = drone.velocity_y
+        gravity_adjusted_thrust = self.last_action[0] - 0.5
+        correction = -(vy * gravity_adjusted_thrust)  # Negative for anti-corrections
+        if self.config['penalty_only_drift']:
+            correction = min(0, correction)  # Including corrections results in oscillations
+        return correction * weight
+
+    def _reward_pitch_penalty(self, drone, weight):
+        """ Penalise excessive pitch"""
+        return -(drone.pitch ** 2) * weight
+
+    def _reward_spin_penalty(self, drone, weight):
+        """ Penalise excessive pitch velocity"""
+        return -(drone.pitch_velocity ** 2) * weight
+
+    def _reward_action_penalty(self, drone, weight):
+        """ Penalise excessive actions"""
+        return -np.linalg.norm(self.last_action) * weight
+
+    def _reward_crash_penalty(self, drone, weight):
+        """ Penalise out-of-bounds flight"""
+        limit = self.config['safe_zone']
+        if abs(drone.x) > limit or abs(drone.y) > limit:
+            return -weight 
+        return 0.0
+
+    def _reward_hit_bonus(self, drone, weight):
+        """ Reward for hitting target
+            Option to modulate by approach speed
+            Option to modulate by steps taken
+        """
+        if not drone.has_reached_target_last_update:
+            return 0.0
+        reward = weight
+        # Modulator: 1.0 if stopped, 0.0 if speed > 1.0
+        if self.config['hit_slow']:
+            reward *= max(0.0, 1.0 - self.speed)
+        # Encourage speed. A hit is better if it's fast. 
+        # 1000 is a reasonable step count baseline.
+        if self.config['hit_fast']:
+            reward *= (1000.0 / self.steps_taken)
+        return reward
+    
+    def _reward_d_gated_velocity(self, drone, weight):
+        """ Distance gated velocity - penalise large velocities near to target
+            Gating via sigmoid
+        """
+        gate = 1 / (1 + np.exp((self.dist - 0.3) / 0.05))
+        return -self.speed * gate * weight
+
+
 class NeuralReinforceController(FlightController):
     def __init__(self, config_file='neural_reinforce_config.json', test_mode=False):
         super().__init__()  # Pull attributes from parent class so they're consistent
@@ -320,16 +464,16 @@ class NeuralReinforceController(FlightController):
         # Initialise logger
         self.logger = ExperimentLogger(self.config['experiment_name'])
         
-        # State/action stores for reward calculations
-        self.prev_dist = None
-        self.prev_velocity = np.zeros(2) 
-        self.last_action = np.zeros(2)
-        self.last_action_sigma = np.zeros(2)
+        # Iniitalise reward manager
+        self.reward_manager = RewardManager(self.config)
         
         # Initialise alternative model for value baseline
-        if self.config['hyperparameters'].get('baseline_mode') == 'sarsa':
+        self.init_value_baseline()
+        
+
+    def init_value_baseline(self):
+        if self.config['hyperparameters']['baseline_mode'] == 'sarsa':
             model = SARSAController()
-            # Construct path relative to this script
             path = os.path.join(os.path.dirname(__file__), 
                                 self.config['hyperparameters']['baseline_path'])
             model.target_mode = "random"
@@ -383,8 +527,7 @@ class NeuralReinforceController(FlightController):
             action = mu
         
         # Store actions of rewards and logging
-        self.last_action = action
-        self.last_action_sigma = sigma
+        self.reward_manager.last_action = action
         return action, sigma
     
     def convert_action_to_thrust(self, action):
@@ -413,179 +556,6 @@ class NeuralReinforceController(FlightController):
         state = self.get_state(drone)
         action, _ = self.get_action(state, mode='test')
         return self.convert_action_to_thrust(action)
-
-    def get_reward(self, drone: Drone, n_steps=1000):
-        """
-        Calculate rewards for the episode
-        TODO: Turn this into a class! To manage previous states, store logs, initialise based on config, and clean things up
-        """
-        cfg = self.config['rewards']
-        reward = 0.0
-        reward_log = {
-            'distance_weight': 0.0,
-            'delta_distance': 0.0,
-            'pitch_penalty': 0.0,
-            'spin_penalty': 0.0,
-            'hit_bonus': 0.0,
-            'crash_penalty': 0.0,
-            'dx_penalty': 0.0,
-            'velocity_alignment': 0.0,
-            'x_drift': 0.0,
-            'y_drift': 0.0,
-            'action_penalty': 0.0,
-            'd_gated_velocity': 0.0
-        }
-        
-        # Calculate distance to target
-        target = drone.get_next_target()
-        dist_vector = np.array([target[0] - drone.x, target[1] - drone.y])
-        dist = np.linalg.norm(dist_vector)
-         
-        # Distance Penalty
-        if cfg['distance_weight'] is not None:
-            part = (0.25 - dist) * cfg['distance_weight']  # Add bias, positive reward inside screen
-            reward += part
-            reward_log['distance_weight'] = part
-        
-        # Delta distance - simple +/-x based on moving toward or away from target
-        if cfg['delta_distance'] is not None:
-            if self.prev_dist is None or drone.has_reached_target_last_update:
-                pass  # Just do nothing on the first step, or when target is aqcuired
-            else:
-                # Continuous change in target distance
-                delta_dist = self.prev_dist - dist
-                part = (delta_dist * cfg['delta_distance']) 
-                reward += part
-                reward_log['delta_distance'] = part
-        
-        # Delta distance - simple +/-x based on moving toward or away from target
-        if cfg['delta_direction'] is not None:
-            if self.prev_dist is None:
-                pass  # Just do nothing on the first step
-            else:
-                # Binary change in target distance. 
-                # Note: when previous==current, the reward is negative, discouraging sitting still
-                delta_direction = 1.0 if self.prev_dist > dist else -1.0
-                if abs(self.prev_dist - dist) < 0.0001:
-                    delta_direction = 2.0  # Give a big reward for staying in one place
-                part = (delta_direction * cfg['delta_direction']) 
-                reward += part
-                reward_log['delta_direction'] = part
-            
-        # Velocity alignment - compares drone to target and acceleration vectors, rewards alignment
-        if cfg['velocity_alignment'] is not None:
-            # Get change in velocity vector - unnormalised for magnitude, or "acceleration"
-            velocity = np.array([drone.velocity_x, drone.velocity_y])
-            delta_v = velocity - self.prev_velocity
-            # Normalise distance to target vector and calculate alignment
-            target_dir = dist_vector / dist
-            alignment = np.dot(delta_v, target_dir)
-            part = alignment * cfg['velocity_alignment']
-            reward += part
-            reward_log['velocity_alignment'] = part
-              
-        # Horizontal Drift correction - if drifting away from target, reward actoins which correct drift
-        if cfg['x_drift'] is not None:
-            vx = drone.velocity_x
-            target_x_diff = target[0] - drone.x   
-            # moving_away = np.sign(vx) != np.sign(target_x_diff)  
-            # if moving_away:
-            #     roll = self.last_action[1]
-            #     correction = -(vx * roll)  # e.g. vx<0 and roll>0, moving left and rolling right, so signs reverse for correction
-            # else:
-            #     correction = 0.0
-            roll = self.last_action[1]
-            correction = -(vx * roll)  # e.g. vx<0 and roll>0, moving left and rolling right, so signs reverse for correction
-            if self.config['penalty_only_drift']:
-                if correction > 0:
-                    correction = 0
-            part = correction * cfg['x_drift']
-            reward += part
-            reward_log['x_drift'] = part
-              
-        # Vertical Drift correction - if drifting away from target, reward actoins which correct drift
-        if cfg['y_drift'] is not None:
-            vy = drone.velocity_y
-            target_y_diff = target[1] - drone.y
-            # moving_away = np.sign(vy) != np.sign(target_y_diff)  
-            # if moving_away:
-            #     gravity_adjusted_thrust = self.last_action[0] - 0.5
-            #     correction = -(vy * gravity_adjusted_thrust)  # e.g. vy<0 and thrust>1, moving down and thrusting up, so signs reverse for correction
-            # else:
-            #     correction = 0.0
-            gravity_adjusted_thrust = self.last_action[0] - 0.5
-            correction = -(vy * gravity_adjusted_thrust)  # e.g. vy<0 and thrust>1, moving down and thrusting up, so signs reverse for correction
-            if self.config['penalty_only_drift']:
-                if correction > 0:
-                    correction = 0
-            part = correction * cfg['y_drift']
-            reward += part
-            reward_log['y_drift'] = part
-            
-        # Pitch penalty
-        if cfg['pitch_penalty'] is not None:
-            part = -np.pow(drone.pitch, 2) * cfg['pitch_penalty']
-            reward += part
-            reward_log['pitch_penalty'] = part
-        
-        # Hit Bonus
-        if cfg['hit_bonus'] is not None:
-            if drone.has_reached_target_last_update:
-                part = cfg['hit_bonus']
-                # Slow at target.
-                # Modulator: 1.0 if stopped, 0.0 if speed > 1.0
-                if self.config['hit_slow']:
-                    speed = np.linalg.norm([drone.velocity_x, drone.velocity_y])  
-                    stability = max(0.0, 1.0 - speed) 
-                    part *= stability
-                # Encourage speed. A hit is better if it's fast. 
-                # 1000 is a reasonable step count baseline.
-                if self.config['hit_fast']:
-                    speed = 1000 / n_steps  
-                    part *= speed
-                reward += part
-                reward_log['hit_bonus'] = part
-                
-        # Penalise high pitch velocity
-        if cfg.get('spin_penalty') is not None:
-            part = -(drone.pitch_velocity ** 2) * cfg['spin_penalty']
-            reward += part
-            reward_log['spin_penalty'] = part
-        
-        # Crash penalty - early stopping
-        if cfg.get('crash_penalty') is not None:
-            limit = self.config['safe_zone']
-            if abs(drone.x) > limit or abs(drone.y) > limit:
-                part = -cfg['crash_penalty']
-                reward += part
-                reward_log['crash_penalty'] = part
-                
-        # Lateral speed penalty
-        if cfg.get('dx_penalty') is not None:
-            part = -(drone.velocity_x ** 2) * cfg['dx_penalty']
-            reward += part
-            reward_log['dx_penalty'] = part
-            
-        # Action penalty - penalise large actions with -a^2
-        if cfg.get('action_penalty') is not None:
-            part = -np.linalg.norm(self.last_action) * cfg['action_penalty']
-            reward += part
-            reward_log['action_penalty'] = part
-            
-        # Distance gated velocity - penalise large velocities near to target
-        if cfg.get('d_gated_velocity') is not None:
-            gate = 1 / (1 + np.exp((dist - 0.3) / 0.05))  # sigmoid gating for smoothness
-            velocity = np.linalg.norm([drone.velocity_x, drone.velocity_y])
-            part = -velocity * gate * cfg['d_gated_velocity']
-            reward += part
-            reward_log['d_gated_velocity'] = part
-        
-        # Log total
-        # reward_log['total'] = reward
-        
-        self.prev_dist = dist  # Update the stored distance
-            
-        return reward, reward_log
     
     def get_returns(self, rewards, normalise=True):
         """
@@ -623,7 +593,6 @@ class NeuralReinforceController(FlightController):
         
         return returns
     
-    
     def calculate_advantages(self, returns, baselines):
         
         # Calculate advantage: G_t - V(s)
@@ -649,12 +618,8 @@ class NeuralReinforceController(FlightController):
                                 episode=episode
                                 )
         
-        # Iniitalise previous state/action stores before each episode begins. 
-        # Otherwise they carry over unpredictably into rewards
-        target = drone.get_next_target()
-        self.prev_dist = np.linalg.norm([target[0] - drone.x, target[1] - drone.y])
-        self.prev_velocity = np.zeros(2) 
-        self.last_action = np.zeros(2)
+        # Initialise the reward manager
+        self.reward_manager.episode_reset(drone)
         
         # Initialise stores
         states = []
@@ -690,7 +655,7 @@ class NeuralReinforceController(FlightController):
             drone.step_simulation(self.get_time_interval())
             
             # Get rewards
-            reward, reward_log = self.get_reward(drone)
+            reward, reward_log = self.reward_manager.calculate(drone, action)
             reward_logs.append(reward_log)
             
             # Store data
@@ -700,10 +665,8 @@ class NeuralReinforceController(FlightController):
             rewards.append(reward)
             
             # Early stopping
-            limit = self.config['safe_zone']
-            if self.config['rewards']['crash_penalty'] is not None:
-                if abs(drone.x) > limit or abs(drone.y) > limit:
-                    break
+            if reward_log.get('crash_penalty', 0) != 0:
+                break
             
         return states, actions, sigmas, rewards, reward_logs, baselines
         
