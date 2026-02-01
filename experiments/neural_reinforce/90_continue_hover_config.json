@@ -3,6 +3,9 @@
     "load": "best",
     "continue_training": "60_reward_shaping_phase1",
     "reset_sigma": false,
+    "target_mode": "hover",
+    "curriculum_max_episodes": 1000,
+    "safe_zone": 2,
     "hyperparameters": {
         "gamma": 0.5,
         "learning_rate": 0.03,
@@ -13,10 +16,7 @@
         "weight_scaling": 1,
         "weight_decay": 0.001,
         "baseline_mode": "mean",
-        "baseline_path": "runs/20260129_115824/q_table.npy",
-        "safe_zone": 2,
-        "curriculum": "hover",
-        "curriculum_max_episodes": 1000
+        "baseline_path": "runs/20260129_115824/q_table.npy"
     },
     "rewards": {
         "hit_bonus": null,
@@ -33,6 +33,5 @@
     },
     "penalty_only_drift": true,
     "hit_fast": false,
-    "hit_slow": true,
-    "target_mode": "hover"
+    "hit_slow": true
 }
