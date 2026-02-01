@@ -10,30 +10,51 @@ from matplotlib import pyplot as plt
 #---------------------WRITE YOUR OWN CODE HERE------------------------#
 from heuristic_controller import HeuristicController
 from neural_reinforce_controller import NeuralReinforceController
-# from custom_controller import CustomController
+from SARSA_controller import CustomController as SARSAController
+
+# Model and mode
+IS_TRAINING = False
+CONTROLLER = 'HeuristicController'
+CONTROLLER = 'NeuralReinforceController'
+CONTROLLER = 'SARSAController'
+
+# Simulation settings
+TARGET_MODE = 'random'  # From "fixed", "random", "simple_random", "hover", "increasing"
+NUM_TARGETS = 100
+MAX_STEPS = 2500
+
+# Reward diagnostics - requires controller to have a get_reward() method return a specific data structure
+PLOT_REWARDS = True  # Plot reward distribution after simulation
+DISPLAY_REWARDS = True  # Show live rewards on game screen
 
 def generate_controller() -> FlightController:
-    # return HeuristicController() # <--- Replace this with your own written controller
-    # return CustomController()
-    test_mode = not is_training()
-    return NeuralReinforceController(test_mode=test_mode)
+    if CONTROLLER == 'HeuristicController':
+        controller = HeuristicController()
+        
+    elif CONTROLLER == 'NeuralReinforceController':
+        config = "experiments/neural_reinforce/60_reward_shaping_phase1_config.json"
+        test_mode = not IS_TRAINING
+        controller = NeuralReinforceController(config_file=config, test_mode=test_mode)
+        controller.load(mode='best')
+        
+    elif CONTROLLER == 'SARSAController':
+        controller = SARSAController()    
+        controller.q_path = "runs/20260129_115824/q_table.npy"  # Slow
+        # controller.q_path = "runs/20260129_231302/q_table.npy"  # Fast
+        
+    controller.target_mode = TARGET_MODE
+    controller.n_targets_random = NUM_TARGETS
+    
+    return controller
 
 def is_training() -> bool:
-    return False # <--- Replace this with True if you want to train, false otherwise
+    return IS_TRAINING # <--- Replace this with True if you want to train, false otherwise
 def is_saving() -> bool:
     return True # <--- Replace this with True if you want to save the results of training, false otherwise
 
 #---------------------------------------------------------------------#
 SCREEN_WIDTH = 720
 SCREEN_HEIGHT = 480
-
-# 'deterministic': the 4 fixed targets provided, 'random': generates NUM_TARGETS randomly distributed targets
-TARGET_MODE = 'random'
-NUM_TARGETS = 100
-
-# Reward diagnostics - requires controller to have a get_reward() method return a specific data structure
-PLOT_REWARDS = True  # Plot reward distribution after simulation
-DISPLAY_REWARDS = True  # Show live rewards on game screen
 
 def get_scale():
     return min(SCREEN_HEIGHT, SCREEN_WIDTH)
@@ -72,10 +93,10 @@ def main(controller: FlightController):
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     
     # Initalise the drone
-    drone = controller.init_drone(mode=TARGET_MODE, num_targets=NUM_TARGETS)  # I've changed this so that more targets are generated randomly
+    drone = controller.init_drone()
     
     simulation_step_counter = 0
-    max_simulation_steps = controller.get_max_simulation_steps()
+    max_simulation_steps = MAX_STEPS
     delta_time = controller.get_time_interval()
 
     # Track cumulative rewards
@@ -138,7 +159,7 @@ def main(controller: FlightController):
         # Checks whether to reset the current drone
         simulation_step_counter+=1
         if (simulation_step_counter>max_simulation_steps):
-            drone = controller.init_drone(mode=TARGET_MODE, num_targets=NUM_TARGETS) # Reset the drone
+            drone = controller.init_drone() # Reset the drone
             simulation_step_counter = 0
             if hasattr(controller, 'reward_manager'):
                 controller.reward_manager.episode_reset(drone)
@@ -244,15 +265,6 @@ def plot_rewards_history(history):
     
     plt.tight_layout()
     plt.show()
-
-# if __name__ == "__main__":
-    
-#     controller = generate_controller()
-#     controller.target_mode = "random"
-#     controller.q_path = "runs/20260128_203007/q_table.npy"
-#     controller.load()
-    
-#     main(controller)
 
 if __name__ == "__main__":
 
