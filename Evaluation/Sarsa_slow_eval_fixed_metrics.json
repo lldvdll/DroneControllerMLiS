@@ -9,7 +9,7 @@
       -0.5,
       0.5
     ],
-    "max_steps": 3000,
+    "max_steps": 5000,
     "action_repeat": 1
   },
   "core": {
@@ -20,38 +20,38 @@
     },
     "crash_rate": 0.0,
     "steps": {
-      "mean": 2404.0,
+      "mean": 4244.0,
       "std": 0.0
     },
     "time_to_target": {
-      "median": 537.5,
-      "q25": 430.25,
-      "q75": 708.25
+      "median": 1058.0,
+      "q25": 922.75,
+      "q75": 1196.25
     },
     "path_efficiency": {
-      "mean": 1.3515101516089276,
+      "mean": 1.4271129835079686,
       "std": 0.0
     }
   },
   "stability": {
     "mean_abs_pitch": {
-      "mean": 0.17956287112908734,
+      "mean": 0.08945910425385867,
       "std": 0.0
     },
     "max_abs_pitch": {
-      "mean": 0.36380309341319406,
+      "mean": 0.35286237634870127,
       "std": 0.0
     },
     "thrust_saturation_rate": {
-      "mean": 0.03036605657237937,
+      "mean": 0.0,
       "std": 0.0
     },
     "osc_sign_changes": {
-      "mean": 14.0,
+      "mean": 25.0,
       "std": 0.0
     },
     "pitch_variance": {
-      "mean": 0.04066533126283592,
+      "mean": 0.014269984794553069,
       "std": 0.0
     }
   },
@@ -66,7 +66,7 @@
       0
     ],
     "ep_steps": [
-      2404
+      4244
     ]
   }
 }

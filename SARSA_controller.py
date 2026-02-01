@@ -79,9 +79,9 @@ class CustomController(FlightController):
         # Reward parameters
         self.R_hit = 500.0 # hit target reward
         self.k_progress = 150.0 # progress shaping weight
-        self.boundary_penalty = 1500.0 # terminate penalty if out-of-bounds
-        self.near_boundary_penalty_scale = 5 # shaping weight near boundary
-        self.c_step = 0.08 # timestep cost
+        self.boundary_penalty = 300.0 # terminate penalty if out-of-bounds
+        self.near_boundary_penalty_scale = 0.3 # shaping weight near boundary
+        self.c_step = 0.01 # timestep cost
 
         # default parameters
         self.n_states = 7938
@@ -481,7 +481,7 @@ class CustomController(FlightController):
 
         # PD controller
         k_theta = 0.9
-        k_omega = 0.5 # was 0.35
+        k_omega = 0.35 # was 0.35
         pitch_error = float(drone.pitch) - target_pitch
         tau = -k_theta * pitch_error - k_omega * float(drone.pitch_velocity)
 
