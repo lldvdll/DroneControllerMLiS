@@ -153,6 +153,9 @@ class CustomController(FlightController):
         self.log_path = None
         self.csv_log_path = None
         self.flush_log_every = 10
+        
+        # Reward manager for simulation display
+        self.reward_manager = RewardManager(self)
 
     # ============================================================
     # Target generation
@@ -976,3 +979,28 @@ class CustomController(FlightController):
             print(f"[load] failed: {e}")
 
     
+# Added dummy reward manager to show rewards over game display
+class RewardManager:
+    def __init__(self, controller):
+        self.controller = controller
+        self.prev_dist = 0.0
+
+    def episode_reset(self, drone):
+        """Called by main.py when the drone resets"""
+        self.prev_dist = self.controller._distance_to_target(drone)
+
+    def calculate(self, drone, action=None):
+        """
+        Called by main.py every frame. 
+        Delegates math to the controller's existing compute_reward method.
+        """
+        # Get rewards for step
+        reward, curr_dist, hit, r_parts = self.controller.compute_reward(drone, self.prev_dist)
+        
+        # Manage state
+        if hit:
+             self.episode_reset(drone)
+        else:
+             self.prev_dist = curr_dist
+             
+        return reward, r_parts
