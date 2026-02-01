@@ -4,7 +4,7 @@ from SARSA_controller import CustomController
 
 def main():
     ctrl = CustomController()
-    ctrl.q_path = "runs/20260129_115824/q_table.npy"
+    ctrl.q_path = "runs/20260129_231302/q_table.npy"
     ctrl.load()
 
     # Fixed targets evaluation
@@ -15,9 +15,9 @@ def main():
         max_steps=5000,
         bounds=ctrl.full_bounds,
         log_trajectory = True,
-        traj_filename = "Evaluation/Sarsa_slow_eval_fixed_trajectory"
+        traj_filename = "Evaluation/Sarsa_fast_eval_fixed_trajectory"
     )
-    save_report(rep_fixed, "Evaluation/Sarsa_slow_eval_fixed_metrics_v2.json")
+    save_report(rep_fixed, "Evaluation/Sarsa_fast_eval_fixed_metrics.json")
 
     # Random targets evaluation
     rep_random = evaluate(
@@ -29,7 +29,7 @@ def main():
         bounds=ctrl.full_bounds,
         log_trajectory = False
     )
-    save_report(rep_random, "Evaluation/Sarsa_slow_eval_random_metrics_v2.json")
+    save_report(rep_random, "Evaluation/Sarsa_fast_eval_random_metrics.json")
 
 if __name__ == "__main__":
     main()
