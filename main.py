@@ -105,7 +105,6 @@ def main(controller: FlightController):
         drone.step_simulation(delta_time)
         # Get rewards for display and plot
         if PLOT_REWARDS:
-            controller.reward_manager.episode_reset(drone)
             _, rewards = controller.reward_manager.calculate(drone, action)
             for k,v in rewards.items():  # Accumulate rewards for display
                 rewards_cum[k] = rewards_cum.get(k, 0) + v        
@@ -156,10 +155,14 @@ def draw_rewards(screen, font, rewards):
     """Overlay cumulative rewards on screen with %'s to inform reward shaping"""
     x_offset = 10
     y_offset = 10
+    
+    # Calculate total
+    rewards_disp = rewards.copy()
+    rewards_disp['Total'] = sum(rewards.values())
 
     # Sort keys so they don't jump around
-    for key in sorted(rewards.keys()):
-        val = rewards[key]
+    for key in sorted(rewards_disp.keys()):
+        val = rewards_disp[key]
         text_str = f"{key}: {val:.2f}"
         
         # Render text (Black)

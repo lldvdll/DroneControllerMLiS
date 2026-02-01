@@ -288,11 +288,6 @@ class RewardManager:
         self.config = config
         self.rewards_cfg = config['rewards']
         
-        # Init stores for states and actions
-        self.prev_dist = None
-        self.prev_velocity = np.zeros(2)
-        self.last_action = np.zeros(2)
-        
         # Set active rewards based on config
         # Ignore if config value is "null", otherwise method to reward list
         self.active_rewards = []
@@ -328,7 +323,7 @@ class RewardManager:
             part = method(drone, weight)  # drone, calcs, config value
             total_reward += part
             log[key] = part
-        log['Total'] = total_reward
+        # log['Total'] = total_reward
 
         # Update stored states
         self.prev_dist = self.dist
@@ -500,9 +495,6 @@ class NeuralReinforceController(FlightController):
         pitch_vel = drone.pitch_velocity
         bias = 1.0  # Bias for linear model
         
-        # Store velocity for reward calculation
-        self.prev_velocity = np.array([vx, vy])
-        
         # Normalise - to help stabilise learning
         state = np.array([dx, dy, vx, vy, pitch, pitch_vel, bias])
         norms = np.array([2.0, 2.0, 5.0, 5.0, 1.0, 1.0, 1.0])
@@ -525,9 +517,6 @@ class NeuralReinforceController(FlightController):
             action = np.random.normal(loc=mu, scale=sigma)
         else:
             action = mu
-        
-        # Store actions of rewards and logging
-        self.reward_manager.last_action = action
         return action, sigma
     
     def convert_action_to_thrust(self, action):
