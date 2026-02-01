@@ -154,6 +154,9 @@ class CustomController(FlightController):
         self.csv_log_path = None
         self.flush_log_every = 10
         
+        # Manual hyperparameter tweak for evaluation
+        self.k_omega_arrest_motion = 0.35
+        
         # Reward manager for simulation display
         self.reward_manager = RewardManager(self)
 
@@ -483,7 +486,7 @@ class CustomController(FlightController):
         k_theta = 0.9
         k_omega = 0.35 # was 0.35
         pitch_error = float(drone.pitch) - target_pitch
-        tau = -k_theta * pitch_error - k_omega * float(drone.pitch_velocity)
+        tau = -k_theta * pitch_error - self.k_omega_arrest_motion * float(drone.pitch_velocity)
 
         return self._thrust_from_u_tau(u, tau)
 
