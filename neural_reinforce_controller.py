@@ -125,7 +125,7 @@ class ExperimentLogger:
         ax2.plot(batches, mu_r, color='green', label='Roll Mean')
         ax2.fill_between(batches, mu_r - std_r, mu_r + std_r, color='green', alpha=0.15)
         
-        ax2.set_title("Action Distribution (Empirical Mean $\pm$ Std)")
+        ax2.set_title("Action Distribution (Empirical Mean and Std)")
         ax2.set_ylim(-1.1, 1.1)
         ax2.legend()
         ax2.grid(True, alpha=0.3)
@@ -205,7 +205,7 @@ class Policy():
         
         return mu, sigma, h1, z2
     
-    def backward(self, states, actions, returns, learning_rate):
+    def backward(self, states, actions, returns, learning_rate, weight_decay=0.0):
         """
         Performs the REINFORCE update on the weights.
         Returns: The magnitude (norm) of the gradient for logging.
@@ -274,29 +274,31 @@ class Policy():
             
         # Gradient Ascent
         # Normalize by batch size for stability
-        self.W1 += learning_rate * (grad_W1 / N)
-        self.b1 += learning_rate * (grad_b1 / N)
-        self.W2 += learning_rate * (grad_W2 / N)
-        self.b2 += learning_rate * (grad_b2 / N)
+        self.W1 += learning_rate * (grad_W1 / N - weight_decay * self.W1)
+        self.b1 += learning_rate * (grad_b1 / N - weight_decay * self.b1)
+        self.W2 += learning_rate * (grad_W2 / N - weight_decay * self.W2)
+        self.b2 += learning_rate * (grad_b2 / N - weight_decay * self.b2)
         
         # Return gradient norm for logging
         total_norm = np.linalg.norm(grad_W1) + np.linalg.norm(grad_W2)
         return total_norm
 
 class NeuralReinforceController(FlightController):
-    def __init__(self, config_file='neural_reinforce_config.json'):
-        
-        # Additional attributes for evaluation script - hacky fix
-        self.target_mode = "random"  # "fixed", "random"
-        self.n_targets_random = 5
-        self.full_bounds = (-0.75, 0.75, -0.5, 0.5)  # xmin, xmax, ymin, ymax
-        self.min_separation = 0.20 # min distance between targets
-        self.min_from_origin = 0.15 # min distance from origin (0,0)
-        self.min_from_bounds = 0.1  # min distance from bounds
+    def __init__(self, config_file='neural_reinforce_config.json', test_mode=False):
+        super().__init__()  # Pull attributes from parent class so they're consistent
+        self.test_mode = test_mode
         
         # Load config
         with open(config_file, 'r') as f:
             self.config = json.load(f)
+            
+        # Set up drone targeting
+        self.curriculum_max_episodes = self.config['curriculum_max_episodes']
+        self.target_mode = self.config['target_mode']
+        
+        # Set targetting for test mode to override config when running evaluations
+        if self.test_mode:
+            self.target_mode = 'random'
         
         # Initialise policy - 7 states in, 2 actions out, but with mean and std
         hidden_size = self.config['hyperparameters']['hidden_size']
@@ -305,8 +307,15 @@ class NeuralReinforceController(FlightController):
         
         # Load previous weights
         weights_file = self.config['continue_training']
-        if weights_file is not None:
+        if weights_file is not None and not self.test_mode:
             self.load(weights_file)
+            print(f'Pre-trained weights loaded from {weights_file}')
+            if self.config['reset_sigma']:
+                print(f'Current parameters')
+                print(f'b2: {self.policy.b2}')
+                self.policy.b2[2:] = -1.2  # Initialise sigmas to 0.3 ~ exp(-1.2)
+                print(f'New b2 biases')
+                print(f'b2: {self.policy.b2}')
         
         # Initialise logger
         self.logger = ExperimentLogger(self.config['experiment_name'])
@@ -339,8 +348,6 @@ class NeuralReinforceController(FlightController):
         """
         # Get drone state parameters
         target = drone.get_next_target()
-        if self.config['hyperparameters']['curriculum'] == 'hover':
-            target = (0, 0)
         dx = (target[0] - drone.x)
         dy = (target[1] - drone.y)
         vx = drone.velocity_x
@@ -424,13 +431,13 @@ class NeuralReinforceController(FlightController):
             'dx_penalty': 0.0,
             'velocity_alignment': 0.0,
             'x_drift': 0.0,
-            'y_drift': 0.0
+            'y_drift': 0.0,
+            'action_penalty': 0.0,
+            'd_gated_velocity': 0.0
         }
         
         # Calculate distance to target
         target = drone.get_next_target()
-        if self.config['hyperparameters']['curriculum'] == 'hover':
-            target = (0, 0)
         dist_vector = np.array([target[0] - drone.x, target[1] - drone.y])
         dist = np.linalg.norm(dist_vector)
          
@@ -547,7 +554,7 @@ class NeuralReinforceController(FlightController):
         
         # Crash penalty - early stopping
         if cfg.get('crash_penalty') is not None:
-            limit = self.config['hyperparameters']['safe_zone']
+            limit = self.config['safe_zone']
             if abs(drone.x) > limit or abs(drone.y) > limit:
                 part = -cfg['crash_penalty']
                 reward += part
@@ -558,6 +565,20 @@ class NeuralReinforceController(FlightController):
             part = -(drone.velocity_x ** 2) * cfg['dx_penalty']
             reward += part
             reward_log['dx_penalty'] = part
+            
+        # Action penalty - penalise large actions with -a^2
+        if cfg.get('action_penalty') is not None:
+            part = -np.linalg.norm(self.last_action) * cfg['action_penalty']
+            reward += part
+            reward_log['action_penalty'] = part
+            
+        # Distance gated velocity - penalise large velocities near to target
+        if cfg.get('d_gated_velocity') is not None:
+            gate = 1 / (1 + np.exp((dist - 0.3) / 0.05))  # sigmoid gating for smoothness
+            velocity = np.linalg.norm([drone.velocity_x, drone.velocity_y])
+            part = -velocity * gate * cfg['d_gated_velocity']
+            reward += part
+            reward_log['d_gated_velocity'] = part
         
         # Log total
         # reward_log['total'] = reward
@@ -616,16 +637,21 @@ class NeuralReinforceController(FlightController):
         else:
             return advantages
     
-    def run_episode(self, limits=(-0.5, 0.5)):
+    def run_episode(self, episode, limits=(-0.5, 0.5)):
+        
+        max_steps = self.config['hyperparameters']['max_steps']
         
         # Init drone with increasingly distant random targets
-        drone = self.init_drone(mode='random', limits=limits)
+        drone = self.init_drone(mode=self.target_mode, 
+                                num_targets=max_steps,
+                                limits=limits,
+                                curriculum_max_episodes=self.curriculum_max_episodes,
+                                episode=episode
+                                )
         
         # Iniitalise previous state/action stores before each episode begins. 
         # Otherwise they carry over unpredictably into rewards
         target = drone.get_next_target()
-        if self.config['hyperparameters']['curriculum'] == 'hover':
-            target = (0, 0)
         self.prev_dist = np.linalg.norm([target[0] - drone.x, target[1] - drone.y])
         self.prev_velocity = np.zeros(2) 
         self.last_action = np.zeros(2)
@@ -639,7 +665,7 @@ class NeuralReinforceController(FlightController):
         baselines = []   
         
         # Step through episode
-        for step in range(self.config['hyperparameters']['max_steps']):
+        for step in range(max_steps):
             
             # Get value baseline
             if self.value_model is not None:
@@ -674,7 +700,7 @@ class NeuralReinforceController(FlightController):
             rewards.append(reward)
             
             # Early stopping
-            limit = self.config['hyperparameters']['safe_zone']
+            limit = self.config['safe_zone']
             if self.config['rewards']['crash_penalty'] is not None:
                 if abs(drone.x) > limit or abs(drone.y) > limit:
                     break
@@ -698,33 +724,14 @@ class NeuralReinforceController(FlightController):
         
         # Track best score for saving
         best_score = -np.inf
+        best_batch = -np.inf
         
         # Run episode loop
         n_episodes = self.config['hyperparameters']['n_episodes']
         for episode in range(n_episodes):
-            
-            # Set curriculum
-            target_mode = self.config['hyperparameters']['curriculum']
-            
-            # Target always in centre - don't use hit reward with this!
-            # Note: this isn't active, target (0, 0) needs to be hardcoded so they don't run out  
-            if target_mode == 'hover':
-                limits = (0.0, 0.0) 
-                
-            # Target distance increases over episodes
-            elif target_mode == 'increasing':
-                curriculum_max_episodes = self.config['hyperparameters']['curriculum_max_episodes']
-                difficulty = min(1.0, episode / curriculum_max_episodes)  
-                limit = max(0.1*2, difficulty/2)  # min distance of target size*2, so it's not just sitting on them
-                limits = (-limit, limit)
-                difficulty = self.run_episode(limits=limits)
-                
-            # Target location is always random - the objective
-            elif target_mode == 'random':
-                limits = (-0.5, 0.5)  
              
             # Run episode
-            states, actions, sigmas, rewards, reward_logs, baselines = self.run_episode(limits=limits)
+            states, actions, sigmas, rewards, reward_logs, baselines = self.run_episode(episode)
             
             # Log episode
             self.logger.record_episode(rewards, states, actions, sigmas)
@@ -734,9 +741,9 @@ class NeuralReinforceController(FlightController):
                 self.save()
                 
             # Save best score
-            if np.sum(rewards) > best_score:
-                best_score = np.sum(rewards)
-                self.save(best=True)
+            # if np.sum(rewards) > best_score:
+            #     best_score = np.sum(rewards)
+            #     self.save(best=True)
                 
             # Calculate returns - espisodic returns for discounting, will normalise over batch
             returns = self.get_returns(rewards, normalise=False)
@@ -764,16 +771,22 @@ class NeuralReinforceController(FlightController):
                 if baseline_mode in ['mean', 'zero']:
                     returns_norm = self.normalise_returns(batch_all_returns)
                 elif baseline_mode in ['sarsa']:
-                    returns_norm = self.calculate_advantages(batch_rewards, batch_baselines)
+                    returns_norm = self.calculate_advantages(batch_all_returns, batch_baselines)
                 
                 grad_norm = self.policy.backward(  
                     batch_states, 
                     batch_actions, 
                     returns_norm,
-                    self.config['hyperparameters']['learning_rate']
+                    self.config['hyperparameters']['learning_rate'],
+                    self.config['hyperparameters']['weight_decay']
                 )
                 avg_rew, avg_len = self.logger.log_optimisation_step(grad_norm)
                 print(f"Batch {(episode + 1) / batch_size}: Average Reward: {avg_rew:.4f}, Average Length: {avg_len:.4f}")
+                
+                # Save best weights per batch rather than episode to avoid saving lucky runs
+                if avg_rew > best_batch:
+                    best_batch = avg_rew
+                    self.save(best=True)
                 
         # Save final weights
         self.save()
@@ -823,6 +836,6 @@ class NeuralReinforceController(FlightController):
             self.policy.b1 = data['b1']
             self.policy.W2 = data['W2']
             self.policy.b2 = data['b2']
-            print("Weights loaded.")
+            print(f"Weights loaded from {path}")
         except:
             print("No weights found.")

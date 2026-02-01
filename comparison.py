@@ -1,5 +1,6 @@
 from evaluation import evaluate
 import pandas as pd
+import numpy as np
 from heuristic_controller import HeuristicController
 from neural_reinforce_controller import NeuralReinforceController
 from SARSA_controller import CustomController as SARSAController
@@ -13,31 +14,36 @@ MODELS = {
         'init_args': dict(),
         'load_args': dict()
     },
-    'Neural Reinforce (ph1 latest)': {
-        'controller': 'NeuralReinforceController',
-        'init_args': dict(),
-        'load_args': dict(filename='60_reward_shaping_phase1', mode='latest')
-    },
-    'Neural Reinforce (ph1 best)': {
-        'controller': 'NeuralReinforceController',
-        'init_args': dict(),
-        'load_args': dict(filename='60_reward_shaping_phase1', mode='best')
-    },
-    'Neural Reinforce (ph2 latest)': {
-        'controller': 'NeuralReinforceController',
-        'init_args': dict(),
-        'load_args': dict(filename='63_increase_gamma', mode='latest')
-    },
-    'Neural Reinforce (ph2 best)': {
-        'controller': 'NeuralReinforceController',
-        'init_args': dict(),
-        'load_args': dict(filename='63_increase_gamma', mode='best')
-    },
-    'SARSA': {
+    'SARSA slow': {
         'controller': 'SARSAController',
         'init_args': dict(),
-        'load_args': dict(q_path = "runs/20260128_203007/q_table.npy")
-    }
+        'load_args': dict(q_path = "runs/20260129_115824/q_table.npy")
+    },
+    # 'SARSA fast': {
+    #     'controller': 'SARSAController',
+    #     'init_args': dict(),
+    #     'load_args': dict(q_path = "runs/20260129_231302/q_table.npy")
+    # },
+    # 'Neural Reinforce (60_reward_shaping_phase1 best)': {
+    #     'controller': 'NeuralReinforceController',
+    #     'init_args': dict(test_mode=True),
+    #     'load_args': dict(filename='60_reward_shaping_phase1', mode='best')
+    # },
+    # 'Neural Reinforce (73_reset_curriculum best)': {
+    #     'controller': 'NeuralReinforceController',
+    #     'init_args': dict(test_mode=True),
+    #     'load_args': dict(filename='73_reset_curriculum', mode='best')
+    # },
+    'Neural Reinforce (90_continue_hover best)': {
+        'controller': 'NeuralReinforceController',
+        'init_args': dict(test_mode=True),
+        'load_args': dict(filename='90_continue_hover', mode='best')
+    },
+    # 'Neural Reinforce (100_movement best)': {
+    #     'controller': 'NeuralReinforceController',
+    #     'init_args': dict(test_mode=True),
+    #     'load_args': dict(filename='100_movement', mode='best')
+    # },
 }
 
 def plot_evaluation(models):
@@ -48,11 +54,11 @@ def load_controller(spec):
     
     if spec['controller'] == 'HeuristicController':
         model = HeuristicController()
-        model.target_mode = None
+        model.target_mode = 'random'
     elif spec['controller'] == 'NeuralReinforceController':
-        model = NeuralReinforceController()
+        model = NeuralReinforceController(**spec['init_args'])
         model.load(**spec['load_args'])
-        model.target_mode = None
+        model.target_mode = 'random'
     elif spec['controller'] == 'SARSAController':
         model = SARSAController()
         model.target_mode = 'random'
@@ -75,8 +81,8 @@ def run_comparison():
         metrics = evaluate(
             model,
             eval_mode='random',
-            n_episodes=20,
-            seed=40,
+            n_episodes=50,
+            seed=np.random.randint(0, 1000),
             max_steps=5000,
             # bounds=,
             return_mode='metrics',

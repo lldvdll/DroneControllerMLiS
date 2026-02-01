@@ -15,10 +15,11 @@ from neural_reinforce_controller import NeuralReinforceController
 def generate_controller() -> FlightController:
     # return HeuristicController() # <--- Replace this with your own written controller
     # return CustomController()
-    return NeuralReinforceController()
+    test_mode = not is_training()
+    return NeuralReinforceController(test_mode=test_mode)
 
 def is_training() -> bool:
-    return True # <--- Replace this with True if you want to train, false otherwise
+    return False # <--- Replace this with True if you want to train, false otherwise
 def is_saving() -> bool:
     return True # <--- Replace this with True if you want to save the results of training, false otherwise
 
@@ -133,7 +134,7 @@ def main(controller: FlightController):
         # Checks whether to reset the current drone
         simulation_step_counter+=1
         if (simulation_step_counter>max_simulation_steps):
-            drone = controller.init_drone() # Reset the drone
+            drone = controller.init_drone(mode=TARGET_MODE, num_targets=NUM_TARGETS) # Reset the drone
             simulation_step_counter = 0
             
     # Close the program

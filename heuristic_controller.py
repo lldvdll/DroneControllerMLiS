@@ -12,113 +12,14 @@ class HeuristicController(FlightController):
         """Creates a heuristic flight controller with some specified parameters
 
         """
-
+        super().__init__()  # Pull attributes from parent class so they're consistent
         self.ky = 1.0
         self.kx = 0.5
         self.abs_pitch_delta = 0.1
         self.abs_thrust_delta = 0.3
         
-        # Target configuration
-        self.target_mode = "fixed"  # "fixed", "random"
-        self.n_targets_random = 5
-        
-        # World bounds
-        self.full_bounds = (-0.75, 0.75, -0.5, 0.5)  # xmin, xmax, ymin, ymax
-        
-        # Target sampling constraints
-        self.min_separation = 0.20 # min distance between targets
-        self.min_from_origin = 0.15 # min distance from origin (0,0)
-        self.min_from_bounds = 0.1  # min distance from bounds
-        
-    def _fixed_targets(self) -> List[Point]:
-        return [
-            (0.35, 0.3),
-            (-0.35, 0.4),
-            (0.5, -0.4),
-            (-0.35, 0.0),
-        ]
-    
-    def _sample_random_targets(self, n: int, bounds: Tuple[float, float, float, float],
-                               min_sep: float, min_from_origin: float, min_from_bounds: float,
-                               max_tries: int = 5000) -> List[Point]:
-        """
-        Sample n random targets with constraints:
-        - min_sep: minimum distance between targets
-        - min_from_origin: minimum distance from (0,0)
-        - min_from_bounds: minimum distance from boundaries
-        """
-        xmin, xmax, ymin, ymax = bounds
-        targets: List[Point] = []
-        tries = 0
-
-        while len(targets) < n and tries < max_tries:
-            tries += 1
-            x = float(np.random.uniform(xmin, xmax))
-            y = float(np.random.uniform(ymin, ymax))
-
-            # Check: not too close to origin (0,0)
-            if np.hypot(x, y) < min_from_origin:
-                continue
-
-            # Check: not too close to boundaries
-            dist_to_left = x - xmin
-            dist_to_right = xmax - x
-            dist_to_bottom = y - ymin
-            dist_to_top = ymax - y
-            if min(dist_to_left, dist_to_right, dist_to_bottom, dist_to_top) < min_from_bounds:
-                continue
-
-            # Check: minimum separation from ALL existing targets
-            valid = True
-            for tx, ty in targets:
-                if np.hypot(x - tx, y - ty) < min_sep:
-                    valid = False
-                    break
-            if not valid:
-                continue
-
-            # All checks passed - add target
-            targets.append((x, y))
-        
-        # fallback if constraints too strict
-        if len(targets) < n:
-            while len(targets) < n:
-                x = float(np.random.uniform(xmin + min_from_bounds, xmax - min_from_bounds))
-                y = float(np.random.uniform(ymin + min_from_bounds, ymax - min_from_bounds))
-            
-                targets.append((x, y))
-
-        return targets
-    
-    def init_drone(self) -> Drone:
-        """
-        Create and initialize drone with targets based on mode
-        """
-        drone = Drone()
-
-        if self.target_mode == "fixed":
-            targets = self._fixed_targets()
-
-        elif self.target_mode == "random":
-            targets = self._sample_random_targets(
-                n=self.n_targets_random,
-                bounds=self.full_bounds,
-                min_sep=self.min_separation,
-                min_from_origin=self.min_from_origin,
-                min_from_bounds = self.min_from_bounds
-            )
-
-        else:
-            raise ValueError(f"Unknown target_mode: {self.target_mode}")
-        
-        for points in targets:
-            drone.add_target_coordinate(points)
-
-        return drone
-
     def get_max_simulation_steps(self):
             return 3000 # You can alter the amount of steps you want your program to run for here
-
 
     def get_thrusts(self, drone: Drone) -> Tuple[float, float]:
         """Takes a given drone object, containing information about its current state
