@@ -1,6 +1,10 @@
 {
     "experiment_name": "60_reward_shaping_phase1",
-    "load": "latest",
+    "load": "best",
+    "continue_training": null,
+    "target_mode": "hover",
+    "curriculum_max_episodes": 1000,
+    "safe_zone": 2.0,
     "hyperparameters": {
         "gamma": 0.5,
         "learning_rate": 0.03,
@@ -9,10 +13,7 @@
         "batch_size": 10,
         "hidden_size": 32,
         "weight_scaling": 1.0,
-        "baseline_mode": "mean",
-        "safe_zone": 2.0,
-        "curriculum": "hover",
-        "curriculum_max_episodes": 1000
+        "baseline_mode": "mean"
     },
     "rewards": {
         "hit_bonus": null,
@@ -29,6 +30,5 @@
     },
     "penalty_only_drift": true,
     "hit_fast": false,
-    "hit_slow": true,
-    "target_mode": "hover"
+    "hit_slow": true
 }
