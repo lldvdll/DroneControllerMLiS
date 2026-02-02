@@ -78,15 +78,16 @@ Config in neural_reinforce_congif.json. Contains hyperparameters, reward setting
 
 ### SARSA
 
-<TODO: Complete this.>
+SARSA_controller.py implements tabular SARSA with state discretisation and macro-actions. It contains:
+1. CustomController: Core policy implementation with training and logging integrated directly. 
+2. RewardManager: A wrapper class that interfaces with the main simulator loop. It delegates math to CustomController.compute_reward() to calculate and return rewards (hits, progress, boundary penalties) for real-time logging and display.
 
+Configuration: Unlike the REINFORCE implementation, hyperparameters and curriculum definitions are coded directly within CustomController.
+
+Training & Diagnosis Scripts
+1. train.py: The primary entry point for training the SARSA agent. It manages training tracking, saves Q-tables, and organises logs within the runs/ directory. It supports multiple target modes and we used curriculum mode only for training.
+2. analysis.py: A visualisation utility that reads the JSONL logs produced during training. It generates diagnostic plots such as rolling mean returns, target hit counts, crash rates, and a breakdown of reward components.
 
 ## Additional files
-
-1. train.py - used for training SARSA_controller
-2. comparison.py - used to compare different models, specified in dictionary at top of file. A template for each controller type is included. Runs evaluate() on each model with same game and target settings, generates performance tables
-3. evaluate.py - used to evaluate SARSA models. Generates ...<TODO: explain>
-4. analysis.py - <TODO: Explain>
-5. SARSA_eval.py - <TODO: Explain>
-6. Heuristic_eval.py - <TODO: Explain>
-7 Report Plot.py - <TODO: Explain>
+1. comparison.py - used to compare different models, specified in dictionary at top of file. A template for each controller type is included. Runs evaluate() on each model with same game and target settings, generates performance tables
+2. evaluate.py - The core engine for assessing model performance. It generates comprehensive metrics including success and crash rates, target completion statistics, path efficiency (actual vs. Euclidean distance), and stability control data.
