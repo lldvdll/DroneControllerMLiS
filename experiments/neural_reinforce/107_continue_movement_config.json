@@ -1,0 +1,43 @@
+{
+    "experiment_name": "107_continue_movement",
+    "load": "best",
+    "continue_training": "106_movement",
+    "reset_sigma": false,
+    "target_mode": "random",
+    "curriculum_max_episodes": 2000,
+    "safe_zone": 10,
+    "hyperparameters": {
+        "gamma": 0.99,
+        "learning_rate": 0.005,
+        "n_episodes": 2000,
+        "max_steps": 2000,
+        "batch_size": 10,
+        "hidden_size": 32,
+        "weight_scaling": 1,
+        "weight_decay": 0.0001,
+        "baseline_mode": "sarsa",
+        "baseline_path": "runs/20260129_231302/q_table.npy",
+        "increase_gamma": false
+    },
+    "rewards": {
+        "hit_bonus": 500,
+        "distance_weight": null,
+        "delta_distance": null,
+        "delta_direction": null,
+        "pitch_penalty": 0.1,
+        "spin_penalty": 0.05,
+        "crash_penalty": 500,
+        "dx_penalty": null,
+        "accel_alignment": null,
+        "vel_alignment": null,
+        "x_drift": 10,
+        "y_drift": 10,
+        "action_penalty": null,
+        "d_gated_velocity": null,
+        "time_step": 0.01,
+        "progress": 150
+    },
+    "penalty_only_drift": true,
+    "hit_fast": false,
+    "hit_slow": false
+}
