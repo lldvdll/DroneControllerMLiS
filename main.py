@@ -13,10 +13,10 @@ from neural_reinforce_controller import NeuralReinforceController
 from SARSA_controller import CustomController as SARSAController
 
 # Model and mode
-IS_TRAINING = True
+IS_TRAINING = False
 # CONTROLLER = 'HeuristicController'
-CONTROLLER = 'NeuralReinforceController'
-# CONTROLLER = 'SARSAController'
+# CONTROLLER = 'NeuralReinforceController'
+CONTROLLER = 'SARSAController'
 
 # Simulation settings
 TARGET_MODE = 'random'  # From "fixed", "random", "simple_random", "hover", "increasing"
@@ -36,18 +36,18 @@ def generate_controller() -> FlightController:
             controller = NeuralReinforceController()
         else:
             # config = "experiments/neural_reinforce/60_reward_shaping_phase1_config.json"
-            config = "experiments/neural_reinforce/63_increase_gamma_config.json"
-            # config = "experiments/neural_reinforce/90_continue_hover_config.json"
-            config = "experiments/neural_reinforce/102_movement_vb_config.json"
+            # config = "experiments/neural_reinforce/63_increase_gamma_config.json"
+            config = "experiments/neural_reinforce/90_continue_hover_config.json"
+            # config = "experiments/neural_reinforce/102_movement_vb_config.json"
             controller = NeuralReinforceController(config_file=config, test_mode=True)
             controller.load(mode='best')
         
     elif CONTROLLER == 'SARSAController':
         controller = SARSAController()    
-        controller.q_path = "runs/20260129_115824/q_table.npy"  # Slow
-        controller.k_omega_arrest_motion = 0.35
-        # controller.q_path = "runs/20260129_231302/q_table.npy"  # Fast
-        # controller.k_omega_arrest_motion = 0.5
+        # controller.q_path = "runs/20260129_115824/q_table.npy"  # Slow
+        # controller.k_omega_arrest_motion = 0.35
+        controller.q_path = "runs/20260129_231302/q_table.npy"  # Fast
+        controller.k_omega_arrest_motion = 0.5
         controller.load()
         
     controller.target_mode = TARGET_MODE
