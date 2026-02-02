@@ -23,6 +23,13 @@ You can also run this in the normal way supported by your IDE.
 
 In order to run your own algorithm with the visualisation, you need to change the code at the top of `main.py`, which is detailed in the comments.
 
+## Changes to main
+IS_TRAINING = False to run pygame simulation
+CONTROLLER specifies which controller to use.
+generate_controller() contains a list of active models for each controller. Comment/uncomment, or specify new config or q_path to select a specific model.
+Reward overlay and cummulative reward plot have been added. These may be toggled on/off with PLOT_REWARDS and DISPLAY_REWARDS.
+
+
 ## Task
 
 We have included a file `custom_controller.py` for you to write your own custom controller. You can also create any new files you need for scripts in order to train your controller. You can simulate your own environments and even change the way in which targets are spawned in order to more effectively train your agent. An example of the code needed to run your controller is given below:
@@ -52,3 +59,34 @@ for i in range(max_time):
 2. Decrease the value of the drag constants in drone.py to make the simulation more sensitive.
 3. Introduce barriers for the drone to avoid while also hitting the target.
 4. Extend the simulation to include two drones which avoid colliding with one another, but which still have to hit targets.
+
+
+## Controllers
+### FlightController
+flight_controller.py has been edited to:
+1. Add attributes required for evaluations
+2. Update init_drone() with target modes: fixed (original 4 targets), hover (all at (0,0)), random (with constraints), random_simple (without constraints), increasing (random, but increasing per episode).
+
+### REINFORCE
+neural_reinforce_controller.py implements REINFORCE with a neural network. It contains:
+1. NeuralReinforceController: Extends FlightController. Reads training, test, and reward config from neural_reinforce_congif.json. Can also pass custom config during init.
+2. ExperimentLogger: Logs intermediate per episode metrics for training diagnostics. Plots/saves to experiments/neural_reinforce at end of training run.
+3. Policy: Neural network model with back propagation. Called by NeuralReinforceController.train() for trajectory sampling and model updates. Called by NeuralReinforceController.get_thrusts() for testing.
+4. RewardManager: Calculates rewards and maintains relevant state/action variables. Gets reward structure from neural_reinforce_congif.json - rewards.
+
+Config in neural_reinforce_congif.json. Contains hyperparameters, reward settings, and save/load locations. "experiment_name" determines save/load settings, loading files from experiments/neural_reinforce in NeuralReinforceController(test_mode=True). During training, copies config, weights, and diagnostics to experiments/neural_reinforce. Doesn't check for duplicate names or overwrite!
+
+### SARSA
+
+<TODO: Complete this.>
+
+
+## Additional files
+
+1. train.py - used for training SARSA_controller
+2. comparison.py - used to compare different models, specified in dictionary at top of file. A template for each controller type is included. Runs evaluate() on each model with same game and target settings, generates performance tables
+3. evaluate.py - used to evaluate SARSA models. Generates ...<TODO: explain>
+4. analysis.py - <TODO: Explain>
+5. SARSA_eval.py - <TODO: Explain>
+6. Heuristic_eval.py - <TODO: Explain>
+7 Report Plot.py - <TODO: Explain>
