@@ -76,6 +76,8 @@ neural_reinforce_controller.py implements REINFORCE with a neural network. It co
 
 Config in neural_reinforce_congif.json. Contains hyperparameters, reward settings, and save/load locations. "experiment_name" determines save/load settings, loading files from experiments/neural_reinforce in NeuralReinforceController(test_mode=True). During training, copies config, weights, and diagnostics to experiments/neural_reinforce. Doesn't check for duplicate names or overwrite!
 
+Note: linear_reinforce_controller.py and linear_reinforce_config.json are included as read only as they are no longer integrated with main.py and comparison.py.
+
 ### SARSA
 
 SARSA_controller.py implements tabular SARSA with state discretisation and macro-actions. It contains:

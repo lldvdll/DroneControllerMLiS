@@ -1,0 +1,43 @@
+{
+    "experiment_name": "105_movement_novb",
+    "load": "best",
+    "continue_training": "90_continue_hover",
+    "reset_sigma": false,
+    "target_mode": "increasing",
+    "curriculum_max_episodes": 5000,
+    "safe_zone": 10,
+    "hyperparameters": {
+        "gamma": 0.5,
+        "learning_rate": 0.01,
+        "n_episodes": 2000,
+        "max_steps": 2000,
+        "batch_size": 10,
+        "hidden_size": 32,
+        "weight_scaling": 1,
+        "weight_decay": 0.0005,
+        "baseline_mode": "mean",
+        "baseline_path": "runs/20260129_231302/q_table.npy",
+        "increase_gamma": true
+    },
+    "rewards": {
+        "hit_bonus": 500,
+        "distance_weight": null,
+        "delta_distance": null,
+        "delta_direction": null,
+        "pitch_penalty": 0.1,
+        "spin_penalty": null,
+        "crash_penalty": 500,
+        "dx_penalty": null,
+        "accel_alignment": null,
+        "vel_alignment": null,
+        "x_drift": null,
+        "y_drift": null,
+        "action_penalty": null,
+        "d_gated_velocity": null,
+        "time_step": 0.01,
+        "progress": 150
+    },
+    "penalty_only_drift": true,
+    "hit_fast": false,
+    "hit_slow": false
+}
